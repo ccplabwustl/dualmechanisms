@@ -29,6 +29,8 @@ def BuildMatrix(dict1):
           + '\'' + dict1['Stern1_AP'] + '\'; \'' + dict1['Stern2_PA'] + '\';\n'\
           + '\'' + dict1['Stroop1_AP'] + '\'; \'' + dict1['Stroop2_PA'] + '\'];'
     return uuids
+
+
 #Get the list of physio Files and store in to tmp.csv
 os.system("curl -s -k -n https://intradb.humanconnectome.org/data/projects/DMCC_Phase2/subjects/"+SUBJ+"/experiments/"+SUBJ+"_"+SESS+"/scans?format=csv | grep \"Physio\" | cut -d, -f7,8 > tmp.csv")
 
@@ -55,7 +57,7 @@ for directory in os.listdir(WorkDir):
         for name in files:
             print name
             fileNameDict[directory[:2]] = os.path.splitext(name)[0]
-            #os.rename(os.path.join(root, name), os.path.join(WorkDir, name))
+            shutil.copy(os.path.join(root, name), os.path.join(WorkDir, name))
     #shutil.rmtree(directory)
 #             fileNameTable.root
 #             print "Moving From: " + os.path.join(root, name)
@@ -65,7 +67,16 @@ for directory in os.listdir(WorkDir):
 #
 #
 
-mergeDictionaries(trialIDDict, fileNameDict)
-print BuildMatrix(trialIDDict)
 
+mergeDictionaries(trialIDDict, fileNameDict)
+print trialIDDict
+
+matrix = BuildMatrix(trialIDDict)
+
+with open('template_convert.m', mode='rw') as matlabFile:
+    allLines = matlabFile.read()
+    pos = matlabFile.read().find('uuids =')
+    matlabFile = allLines[:pos] + BuildMatrix(trialIDDict) + allLines[pos + 1:]
+    allLines.truncate()
+    matlabFile.write(allLines)
 
