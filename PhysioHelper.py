@@ -21,9 +21,11 @@ PROJ = 'DMCC_Phase2'
 ABV = SESS[:3].capitalize()
 trialIDDict = {}
 fileNameDict = {}
-OriginalTemplateConverter = '/home/mitchell/R01/Jo/physio/template_convert.m'
-# TemplateConverterPath = '/scratch1/MitchJeffers/R01/Jo/physio/template_conterter.m'
-
+#OriginalTemplateConverter = '/home/mitchell/R01/Jo/physio/template_convert.m'
+OriginalTemplateConverter = '/scratch1/MitchJeffers/R01/Jo/physio/template_conterter.m'
+FullDIR = os.path.join(DIR,SUBJ,SUBJ+'_'+SESS,'physio_data')
+if not os.path.exists(FullDIR):
+    os.makedirs(FullDIR)
 
 
 #merge Dictionary one and two. use dict1's keys
@@ -55,8 +57,8 @@ def GetPhysioData():
 
     print 'Downloading Physio Data from intraDB'
     #Download all the physio scans
-    print 'bash intraDBPhysioDownload.sh -s '+SUBJ+' -e '+SESS+' -p '+PROJ+' -d '+DIR
-    #os.system('bash intraDBPhysioDownload.sh -s '+SUBJ+' -e '+SESS+' -p '+PROJ+' -d '+DIR)
+    print 'bash intraDBPhysioDownload.sh -s '+SUBJ+' -e '+SESS+' -p '+PROJ+' -d '+FullDIR
+    os.system('bash intraDBPhysioDownload.sh -s '+SUBJ+' -e '+SESS+' -p '+PROJ+' -d '+FullDIR)
 
 def findUUIDs(sn):
     baseScanNumber = [int(numbers) - 1 for numbers in sn]
@@ -85,12 +87,12 @@ for key, value in trialIDDict.items():
 #Find Files and place in a dictionary with their scan number
 #Make a dictionary With a Key of scan Number and a value of Filename
 #move the files to the parent directory for the matlab script
-for directory in os.listdir(DIR):
+for directory in os.listdir(FullDIR):
     print directory
-    for root, dirs, files in os.walk(os.path.join(DIR, directory)):
+    for root, dirs, files in os.walk(os.path.join(FullDIR, directory)):
         for name in files:
             fileNameDict[directory[:2]] = os.path.splitext(name)[0]
-            shutil.copy(os.path.join(root, name), os.path.join(DIR, name))
+            shutil.copy(os.path.join(root, name), os.path.join(FullDIR, name))
     #shutil.rmtree(directory)
 
 #Merge the two Dictionaries resulting in Key of trial names and Value of filenames
@@ -100,7 +102,7 @@ mergeDictionaries(trialIDDict, fileNameDict)
 
 shutil.copy(OriginalTemplateConverter, '.')
 #Place it into the Matlab file
-with open('template_convert.m', mode='r+b') as matlabFile:
+with open('template_convert.m', mode='rb') as matlabFile:
     allLines = matlabFile.read()
     startPos = allLines.find('uuids = [')
     endPos = allLines.find('runnames = [')
@@ -108,6 +110,6 @@ with open('template_convert.m', mode='r+b') as matlabFile:
     matlabFile.seek(0)
     matlabFile.truncate()
     matlabFile.write(allLines)
-os.rename('template_convert.m', os.path.join(DIR, 'template_convert.m'))
+os.rename('template_convert.m', os.path.join(FullDIR, 'template_convert.m'))
 
 
