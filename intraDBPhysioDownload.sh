@@ -17,8 +17,9 @@ done
 #read -p "ENTER SUBJECT: " SUBJ; echo $SUBJ
 #read -p "ENTER SESSION: " session; echo $session
 pushd $DOWNLOAD_LOCATION
-mkdir -p $SUBJ
 pushd $SUBJ
+pushd ${SUBJ}'_'${session}
+pushd 'physio_data'
 
 for RESOURCE in $(IFS=% && curl -s -k -n https://intradb.humanconnectome.org/data/projects/${PROJ}/subjects/${SUBJ}/experiments/${SUBJ}_${session}/scans?format=csv | grep 'Physio' | cut -d, -f2,4,7; unset IFS); do
 	echo -e "RESOURCE=${RESOURCE}"
@@ -31,4 +32,5 @@ for RESOURCE in $(IFS=% && curl -s -k -n https://intradb.humanconnectome.org/dat
 done
 popd
 popd
-
+popd
+popd
