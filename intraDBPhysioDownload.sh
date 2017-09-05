@@ -16,6 +16,7 @@ do
 done
 #read -p "ENTER SUBJECT: " SUBJ; echo $SUBJ
 #read -p "ENTER SESSION: " session; echo $session
+
 pushd $DOWNLOAD_LOCATION
 pushd $SUBJ
 pushd ${SUBJ}'_'${session}
