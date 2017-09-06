@@ -14,7 +14,7 @@ import csv
 # SESS = 'baseline'
 # PROJ = 'DMCC_Phase2'
 
-DIR = raw_input("Enter the directory for the download\n (usually your Desktop): ")
+DIR = raw_input("Enter the directory for the download\n(usually your Desktop): ")
 PROJ = raw_input('Enter DMCC_Phase2 or DMCC Phase3: ')
 SUBJ = str(input('Enter the subject number: '))
 SESS = raw_input('Enter the session: ')
@@ -36,16 +36,16 @@ if not os.path.exists(PreProcDataDir):
     os.makedirs(PreProcDataDir)
 
 #Get the Correct file numbers that we need to download
-PhyFun.GetPhysioData(PROJ, SUBJ, SESS)
+PhyFun.GetPhysioData(RawDataDir,PROJ, SUBJ, SESS)
 
 #Download those Files
 PhyFun.DownloadPhysioFiles(RawDataDir, PROJ, SUBJ, SESS)
 
 #open tmp.csv and store values into a dict
-with open('tmp.csv', mode='r') as infile:
+with open(os.path.join(RawDataDir,'tmp.csv'), mode='r') as infile:
     reader = csv.reader(infile)
     trialIDDict = {rows[0]: rows[1][-2:] for rows in reader}
-os.remove('tmp.csv')
+os.remove(os.path.join(RawDataDir,'tmp.csv'))
 
 #remove all rest and StroopTest physio files
 trialIDDict = {key: value for key, value in trialIDDict.items()

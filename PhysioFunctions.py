@@ -44,12 +44,13 @@ def BuildMatrix(dict1):
     return uuidMatrix, runnames
 
 
-def GetPhysioData(project, subject, session):
-    # Get the list of physio Files and store in to tmp.csv
+# Get the list of physio Files and store in to tmp.csv
+def GetPhysioData(directory, project, subject, session):
     os.system("curl -s -k -n https://intradb.humanconnectome.org/data/projects/" + project + "/subjects/" \
               + subject + "/experiments/" + subject + "_" + session + \
-              "/scans?format=csv | grep \"Physio\" | cut -d, -f7,8 > tmp.csv")
+              "/scans?format=csv | grep \"Physio\" | cut -d, -f7,8 > " + os.path.join(directory, 'tmp.csv'))
 
+#Download the physio files to the directory folder
 def DownloadPhysioFiles(directory, project, subject, session):
     print 'Downloading Physio Data from intraDB:'
     os.system('bash intraDBPhysioDownload.sh -s ' + subject + ' -e ' + session + ' -p ' + project + ' -d ' + directory)
