@@ -1,5 +1,4 @@
 #!/bin/bash
-DOWNLOAD_LOCATION=/home/mitchell/Desktop/practice
 
 HOST='intradb.humanconnectome.org'
 PROJ='DMCC_Phase2'
@@ -18,10 +17,6 @@ done
 #read -p "ENTER SESSION: " session; echo $session
 
 pushd $DOWNLOAD_LOCATION
-pushd $SUBJ
-pushd ${SUBJ}'_'${session}
-pushd 'physio_data'
-
 for RESOURCE in $(IFS=% && curl -s -k -n https://intradb.humanconnectome.org/data/projects/${PROJ}/subjects/${SUBJ}/experiments/${SUBJ}_${session}/scans?format=csv | grep 'Physio' | cut -d, -f2,4,7; unset IFS); do
 	echo -e "RESOURCE=${RESOURCE}"
 	scan_num="$(echo ${RESOURCE} | cut -d, -f1)"
@@ -32,6 +27,4 @@ for RESOURCE in $(IFS=% && curl -s -k -n https://intradb.humanconnectome.org/dat
 	curl -k -n https://${HOST}/data/projects/${PROJ}/subjects/${SUBJ}/experiments/${SUBJ}_${session}/scans/${scan_num}/resources/secondary/files?format=zip > tmp.zip && unzip tmp.zip && rm tmp.zip
 done
 popd
-popd
-popd
-popd
+
