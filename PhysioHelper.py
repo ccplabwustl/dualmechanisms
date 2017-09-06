@@ -9,15 +9,18 @@ import csv
 # get User Input
 
 #TestValues:
-DIR = '/home/mitchell/Desktop/'
-SUBJ = '132017'
-SESS = 'baseline'
+# DIR = '/home/mitchell/Desktop/'
+# SUBJ = '132017'
+# SESS = 'baseline'
+# PROJ = 'DMCC_Phase2'
+
+DIR = raw_input("Enter the directory for the download\n (usually your Desktop): ")
+PROJ = raw_input('Enter DMCC_Phase2 or DMCC Phase3: ')
+SUBJ = str(input('Enter the subject number: '))
+SESS = raw_input('Enter the session: ')
 
 
-# DIR = raw_input("ENTER THE DIRECTORY FOR THE DOWNLOAD: ")
-# SUBJ = str(input('ENTER SUBJECT NUMBER: '))
-# SESS = raw_input('ENTER SESSION: ')
-PROJ = 'DMCC_Phase2'
+
 ABV = SESS[:3].capitalize()
 trialIDDict = {}
 fileNameDict = {}
