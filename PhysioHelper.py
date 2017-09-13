@@ -1,81 +1,88 @@
-# Purpose: To assist in generating the matlab matrix needed to process the Physio Files
+# Purpose: To assist in generating the matlab matrix used in R01/Jo/physio/template_convert.m
+# needed to process the Physio Files
 # Author: Mitchell Jeffers
 # Date: 8/2/17
 
 import PhysioFunctions as PhyFun
 import os
-import shutil
-import csv
-# get User Input
+import glob
 
+# get User Input
 #TestValues:
 # DIR = '/home/mitchell/Desktop/'
 # SUBJ = '132017'
 # SESS = 'baseline'
 # PROJ = 'DMCC_Phase2'
 
-DIR = raw_input("Enter the directory for the download\n(usually your Desktop): ")
-PROJ = raw_input('Enter DMCC_Phase2 or DMCC Phase3: ')
-SUBJ = str(input('Enter the subject number: '))
-SESS = raw_input('Enter the session: ')
 
-
+#Get the User Input
+DIR, PROJ, SUBJ, SESS = PhyFun.getUserInput()
 
 ABV = SESS[:3].capitalize()
+
+# trialIDDict Stores the Key scan number with the Value of the trial name
+# fileNameDict stores the file name associated with the scan number
 trialIDDict = {}
 fileNameDict = {}
 
-RawDataDir = os.path.join(DIR,PROJ,'Raw_Data', SUBJ, SUBJ+'_'+SESS,'physio_data')
-PreProcDataDir = os.path.join(DIR,PROJ,'Preprocessed_Data', SUBJ, 'physio_data')
+#Build the paths for the RawData and Preprocessed Data
+RawDataDir = os.path.join(DIR, PROJ+'(HCP)', 'Raw_Data', SUBJ, SUBJ + '_' + SESS, 'physio_data')
+PreProcDataDir = os.path.join(DIR, PROJ+'(HCP)', 'Preprocessed_Data', SUBJ, 'physio_data')
 
-#Build The file Structure for the Data
+# Build The file Structure for the Data
 if not os.path.exists(RawDataDir):
     os.makedirs(RawDataDir)
 
 if not os.path.exists(PreProcDataDir):
     os.makedirs(PreProcDataDir)
 
-#Get the Correct file numbers that we need to download
-PhyFun.GetPhysioData(RawDataDir,PROJ, SUBJ, SESS)
 
-#Download those Files
-PhyFun.DownloadPhysioFiles(RawDataDir, PROJ, SUBJ, SESS)
+# ########### IF YOU ARE USING DCM FILE ##########
+# #Get the Correct file numbers that we need to download
+# PhyFun.GetPhysioData(RawDataDir,PROJ, SUBJ, SESS)
+#
+# # open tmp.csv and store values into a dict where the Key is the the first column "tfMRI_Cuedts"
+# with open(os.path.join(RawDataDir, 'tmp.csv'), mode='r') as infile:
+#     reader = csv.reader(infile)
+#     trialIDDict = {rows[0]: rows[1][-2:] for rows in reader}
+# os.remove(os.path.join(RawDataDir, 'tmp.csv'))
+#
+#
 
-#open tmp.csv and store values into a dict
-with open(os.path.join(RawDataDir,'tmp.csv'), mode='r') as infile:
-    reader = csv.reader(infile)
-    trialIDDict = {rows[0]: rows[1][-2:] for rows in reader}
-os.remove(os.path.join(RawDataDir,'tmp.csv'))
-
-#remove all rest and StroopTest physio files
-trialIDDict = {key: value for key, value in trialIDDict.items()
-             if ('Rest' not in key and 'Test' not in key)}
-
-#Generalize Keys to make names more universal,
-for key, value in trialIDDict.items():
-    trialIDDict[key[6:].replace(ABV, '').replace('_PhysioLog', '')] = trialIDDict.pop(key)
-
-#Find Files and place in a dictionary with their scan number
-#Make a dictionary With a Key of scan Number and a value of Filename
-#move the files to the parent directory for the matlab script
-scansPath = os.path.join(RawDataDir, SUBJ+'_'+SESS,'scans')
-for directory in os.listdir(scansPath):
-    for root, dir, files in os.walk(os.path.join(scansPath,directory)):
-        for name in files:
-            fileNameDict[directory[:2]] = os.path.splitext(name)[0]
-            shutil.copy(os.path.join(root, name), os.path.join(RawDataDir, name))
-shutil.rmtree(os.path.join(RawDataDir, SUBJ+'_'+SESS))
-
+# #Download DCM Files
+# PhyFun.DownloadDCMFiles(RawDataDir, PROJ, SUBJ, SESS)
+# #remove the file structure and build fileNameDict
+# fileNameDict = PhyFun.BuildDCMDict(RawDataDir, SUBJ,SESS)
 
 #Merge the two Dictionaries resulting in Key of trial names and Value of filenames
-dictMerge = PhyFun.mergeDictionaries(trialIDDict, fileNameDict)
+#trialFileDict = PhyFun.mergeDictionaries(trialIDDict, fileNameDict)
+########## END DCM SPECIFIC CODE ############
 
+
+
+########## IF YOU ARE USING LINKED_DATA LIKE  _Info.log ##########
+
+#find the uuids and build a dict with key of scan numbers and value of uuid
+trialFileDict = PhyFun.findUUIDs(RawDataDir, PROJ, SUBJ, SESS)
+
+
+#after we have a scan numbers then find the file names with in the Raw_Data Folder that correspond to the UUIDs
+for keys in trialFileDict.keys():
+    os.chdir(RawDataDir)
+    trialFileDict[keys] = glob.glob('Physio_*' + trialFileDict[keys] + '_Info.log')[0][:-9]
+os.chdir(DIR)
+########### END LINKED_DATA SPECIFIC CODE ##########
+
+#Generalize the trial names
+trialFileDict = PhyFun.DictCleanup(trialFileDict, ABV)
 
 #build a String of the matrix for the matlab file
-uuids, runnames = PhyFun.BuildMatrix(dictMerge)
+uuids, runnames = PhyFun.BuildMatrix(trialFileDict)
+
 
 #Place it into the Matlab file
 print "Copy the following lines into the matlab template file:\n\n"
 print 'uuids = ' + (uuids)
+print '\n\n'
 print 'runnames = ' + (runnames)
 
