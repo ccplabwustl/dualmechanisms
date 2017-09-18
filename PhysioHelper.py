@@ -13,7 +13,7 @@ import PhysioFunctions as PhyFun
 
 
 #Get the User Input
-PROJ, SUBJ, SESS = PhyFun.getUserInput()
+PROJ, SUBJ, SESS, COMP, DIR = PhyFun.getUserInput()
 
 ABV = SESS[:3].capitalize()
 
@@ -26,6 +26,9 @@ trialUUIDDict = PhyFun.mergeDictionaries(trialScanDict, scanUUIDDict)
 
 #Generalize the trial names
 trialFileDict = PhyFun.DictCleanup(trialUUIDDict, ABV)
+
+if COMP == 'Yes':
+    trialFileDict = PhyFun.CompareWithLocal(trialFileDict, DIR)
 
 #build a String of the matrix for the matlab file
 uuids, runnames = PhyFun.BuildMatrix(trialFileDict)

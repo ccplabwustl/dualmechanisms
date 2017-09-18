@@ -3,13 +3,18 @@ import csv
 # Get the User input for each parameter
 def getUserInput():
 
-
-
+    COMP = '0'
+    DIR = '0'
     PROJ = raw_input('Enter DMCC_Phase2 or DMCC Phase3: ')
     SUBJ = raw_input('Enter the subject number: ')
     SESS = raw_input('Enter the session: ')
-
-    return PROJ, SUBJ, SESS
+    while(COMP != ('Yes' or 'No')):
+        COMP = raw_input('Compare generated filenames to local Dir? (Yes)/(No): ')
+    if COMP == 'Yes':
+        DIR = raw_input('Enter the path where your Info.log files are stored: ')
+        while not os.path.exists(DIR):
+            DIR = raw_input('Enter the path where your Info.log files are stored: ')
+    return PROJ, SUBJ, SESS, COMP, DIR
 
 
 #Get the list of trial with physio data, along with scan numbers like the following:
@@ -72,6 +77,14 @@ def mergeDictionaries(dict1, dict2):
 def FindMaxLengthValue(dictionary):
     keyLongestName = max(dictionary, key = lambda k: len(dictionary[k]))
     return len(dictionary[keyLongestName])
+
+#Removes Values that are not present in the loacl Dir
+def CompareWithLocal(oldDict, directory):
+    newDict = {}
+    for key in oldDict.keys():
+        if os.path.exists(os.path.join(directory, oldDict[key] + '_Info.log')):
+            newDict[key] = oldDict[key]
+    return newDict
 
 
 # Build Matrix String based on
