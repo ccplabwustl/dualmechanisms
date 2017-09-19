@@ -19,9 +19,9 @@ ABV = SESS[:3].capitalize()
 
 #find the uuids and build a dict with key of scan numbers and value of uuid
 trialScanDict = PhyFun.GetTrialInfo('.', PROJ, SUBJ, SESS)
-print trialScanDict
+
 scanUUIDDict = PhyFun.GetUUIDInfo('.', PROJ, SUBJ, SESS)
-print scanUUIDDict
+
 trialUUIDDict = PhyFun.mergeDictionaries(trialScanDict, scanUUIDDict)
 
 #Generalize the trial names
@@ -35,8 +35,12 @@ uuids, runnames = PhyFun.BuildMatrix(trialFileDict)
 
 
 #Place it into the Matlab file
-print "Copy the following lines into the matlab template file:\n\n"
-print 'uuids = ' + (uuids)
-print '\n\n'
-print 'runnames = ' + (runnames)
+if uuids != 'no value':
+    print "Copy the following lines into the matlab template file:\n\n"
+    print 'uuids = ' + (uuids)
+    print '\n\n'
+    print 'runnames = ' + (runnames)
 
+else:
+    print 'The generated arrays are empty '
+    print 'please verify you\'ve entered all parameters correctly'

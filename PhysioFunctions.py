@@ -8,7 +8,7 @@ def getUserInput():
     PROJ = raw_input('Enter DMCC_Phase2 or DMCC Phase3: ')
     SUBJ = raw_input('Enter the subject number: ')
     SESS = raw_input('Enter the session: ')
-    while(COMP != ('Yes' or 'No')):
+    while((COMP != 'Yes') and (COMP != 'No')):
         COMP = raw_input('Compare generated filenames to local Dir? (Yes)/(No): ')
     if COMP == 'Yes':
         DIR = raw_input('Enter the path where your Info.log files are stored: ')
@@ -95,24 +95,28 @@ def CompareWithLocal(oldDict, directory):
 # if Physio file for scan doesnt exist it will be replaced with a blank space
 # all stings within an array must be the same length so padding is added on to the end of the file names and the
 def BuildMatrix(dict1):
-    maxLength = FindMaxLengthValue(dict1)
 
-    ExpectedTrialList = ['Axcpt1_AP', 'Axcpt2_PA','Cuedts1_AP', 'Cuedts2_PA',\
-                         'Stern1_AP', 'Stern2_PA', 'Stroop1_AP','Stroop2_PA']
-    uuidMatrix = '['
-    runnames = '['
-    for trial in ExpectedTrialList:
-        if trial in dict1:
+    if bool(dict1):
+        maxLength = FindMaxLengthValue(dict1)
 
-            uuidMatrix = uuidMatrix + '\''+dict1[trial].ljust(maxLength)+'\';'
-            run = trial[:-4] + '\' sessidshort \'' + trial[-4:]
-            runnames = runnames + '[\'' + run.ljust(25) + '\'];'
+        ExpectedTrialList = ['Axcpt1_AP', 'Axcpt2_PA','Cuedts1_AP', 'Cuedts2_PA',\
+                            'Stern1_AP', 'Stern2_PA', 'Stroop1_AP','Stroop2_PA']
+        uuidMatrix = '['
+        runnames = '['
+        for trial in ExpectedTrialList:
+            if trial in dict1:
 
-        if '2' in trial:
-            uuidMatrix = uuidMatrix + '\n\t\t'
-            runnames = runnames + '\n\t\t\t'
+                uuidMatrix = uuidMatrix + '\''+dict1[trial].ljust(maxLength)+'\';'
+                run = trial[:-4] + '\' sessidshort \'' + trial[-4:]
+                runnames = runnames + '[\'' + run.ljust(25) + '\'];'
 
-    uuidMatrix = uuidMatrix + '];\n'
-    runnames = runnames + '];\n'
+            if '2' in trial:
+                uuidMatrix = uuidMatrix + '\n\t\t'
+                runnames = runnames + '\n\t\t\t'
 
+        uuidMatrix = uuidMatrix + '];\n'
+        runnames = runnames + '];\n'
+    else:
+        uuidMatrix = 'no value'
+        runnames =   'no value'
     return uuidMatrix, runnames
