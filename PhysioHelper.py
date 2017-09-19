@@ -18,9 +18,9 @@ PROJ, SUBJ, SESS, COMP, DIR = PhyFun.getUserInput()
 ABV = SESS[:3].capitalize()
 
 #find the uuids and build a dict with key of scan numbers and value of uuid
-trialScanDict = PhyFun.GetTrialInfo('.', PROJ, SUBJ, SESS)
+trialScanDict = PhyFun.GetTrialInfo(PROJ, SUBJ, SESS)
 
-scanUUIDDict = PhyFun.GetUUIDInfo('.', PROJ, SUBJ, SESS)
+scanUUIDDict = PhyFun.GetUUIDInfo(PROJ, SUBJ, SESS)
 
 trialUUIDDict = PhyFun.mergeDictionaries(trialScanDict, scanUUIDDict)
 

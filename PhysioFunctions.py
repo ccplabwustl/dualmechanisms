@@ -22,34 +22,34 @@ def getUserInput():
 #tfMRI_CuedtsBas2_PA_PhysioLog,23
 #tfMRI_StroopTest_AP_PhysioLog,26
 #tfMRI_StroopBas1_AP_PhysioLog,29
-def GetTrialInfo(directory, project, subject, session):
+def GetTrialInfo(project, subject, session):
     filename = subject + '_' + session + '_' + 'trial.csv'
-    os.system('bash TrialWithScanRequest.sh -s ' + subject + ' -e ' + session + ' -p ' + project + ' -d ' + directory)
+    os.system('bash TrialWithScanRequest.sh -s ' + subject + ' -e ' + session + ' -p ' + project)
 
     try:
-        with open(os.path.join(directory, filename), mode='r') as infile:
+        with open(filename, mode='r') as infile:
             reader = csv.reader(infile)
             fileDict = {rows[1]: rows[0] for rows in reader}
 
     except:
         print 'ISSUE with csv:' + filename
-    os.remove(os.path.join(directory, filename))
+    os.remove(filename)
     return fileDict
 
 
 #makes a CSVs with the UUIDS and scan Numbers then place those values into a
-def GetUUIDInfo(directory, project, subject, session):
+def GetUUIDInfo(project, subject, session):
     filename = subject+'_'+session+'_'+'UUIDS.csv'
-    os.system('bash ScanNumWithUUIDRequest.sh -s ' + subject + ' -e ' + session + ' -p ' + project + ' -d ' + directory)
+    os.system('bash ScanNumWithUUIDRequest.sh -s ' + subject + ' -e ' + session + ' -p ' + project)
     #Create a Dictionary out of the csv with the
     try:
-        with open(os.path.join(directory, filename), mode='r') as infile:
+        with open(filename, mode='r') as infile:
             reader = csv.reader(infile)
             fileDict = {rows[0]: rows[1] for rows in reader}
 
     except:
         print 'ISSUE with csv:' + filename
-    os.remove(os.path.join(directory, filename))
+    os.remove(filename)
     return fileDict
 
     return scanUUID

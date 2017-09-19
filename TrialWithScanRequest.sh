@@ -16,6 +16,5 @@ done
 #read -p "ENTER SUBJECT: " SUBJ; echo $SUBJ
 #read -p "ENTER SESSION: " session; echo $session
 
-pushd ${DOWNLOAD_LOCATION}
-	curl -s -k -n https://${HOST}/data/projects/${PROJ}/subjects/${SUBJ}/experiments/${SUBJ}_${session}/scans?format=csv | cut -d, -f2,7 | grep tfMRI | grep -v 'SBRef\|Physio' > ${SUBJ}_${session}_trial.csv
-popd
+curl -s -k -n https://${HOST}/data/projects/${PROJ}/subjects/${SUBJ}/experiments/${SUBJ}_${session}/scans?format=csv | cut -d, -f2,7 | grep tfMRI | grep -v 'SBRef\|Physio' > ${SUBJ}_${session}_trial.csv
+
