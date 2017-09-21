@@ -1,5 +1,25 @@
 import os
 import csv
+
+def loadPath(filename,SUBJ,SESS,PROJ):
+    try:
+        with open(filename, mode='r') as infile:
+            DIR = infile.readline()
+            DIR = DIR.replace('SUBJECT', SUBJ).replace('SESSION', SESS).replace('PROJECT', PROJ).strip()
+
+            if not os.path.exists(DIR):
+                print 'path loaded from \''+filename+'\'doesnt exits'
+                print 'please check the following path: \n'
+                print DIR
+                exit()
+            else:
+                return DIR
+
+    except:
+        print 'ISSUE Opening myPath.txt'
+        exit()
+
+
 # Get the User input for each parameter
 def getUserInput():
 
@@ -11,9 +31,7 @@ def getUserInput():
     while((COMP != 'Yes') and (COMP != 'No')):
         COMP = raw_input('Compare generated filenames to local Dir? (Yes)/(No): ')
     if COMP == 'Yes':
-        DIR = raw_input('Enter the path where your Info.log files are stored: ')
-        while not os.path.exists(DIR):
-            DIR = raw_input('Enter the path where your Info.log files are stored: ')
+        DIR = loadPath('myPath.txt', SUBJ,SESS,PROJ)
     return PROJ, SUBJ, SESS, COMP, DIR
 
 
