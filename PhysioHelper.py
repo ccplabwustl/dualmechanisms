@@ -16,7 +16,7 @@ import PhysioFunctions as PhyFun
 PROJ, SUBJ, SESS, COMP, DIR = PhyFun.getUserInput()
 
 ABV = SESS[:3].capitalize()
-
+PhyFun.ChangeWorkingDir()
 #find the uuids and build a dict with key of scan numbers and value of uuid
 trialScanDict = PhyFun.GetTrialInfo(PROJ, SUBJ, SESS)
 

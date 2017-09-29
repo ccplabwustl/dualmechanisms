@@ -19,15 +19,19 @@ def loadPath(filename,SUBJ,SESS,PROJ):
         print 'ISSUE Opening myPath.txt'
         exit()
 
-
+#Change Directory to where PhysioHelper is Located on the System
+def ChangeWorkingDir():
+    abspath = os.path.abspath(__file__)
+    dname = os.path.dirname(abspath)
+    os.chdir(dname)
 # Get the User input for each parameter
 def getUserInput():
 
     COMP = '0'
     DIR = '0'
-    PROJ = raw_input('Enter DMCC_Phase2 or DMCC Phase3: ')
-    SUBJ = raw_input('Enter the subject number: ')
-    SESS = raw_input('Enter the session: ')
+    PROJ = raw_input('Enter DMCC_Phase2 or DMCC Phase3: ').strip()
+    SUBJ = raw_input('Enter the subject number: ').strip()
+    SESS = raw_input('Enter the session: ').strip()
     while((COMP != 'Yes') and (COMP != 'No')):
         COMP = raw_input('Compare generated filenames to local Dir? (Yes)/(No): ')
     if COMP == 'Yes':
@@ -132,8 +136,8 @@ def BuildMatrix(dict1):
                 uuidMatrix = uuidMatrix + '\n\t\t'
                 runnames = runnames + '\n\t\t\t'
 
-        uuidMatrix = uuidMatrix + '];\n'
-        runnames = runnames + '];\n'
+        uuidMatrix = uuidMatrix.rsplit(';', 1)[0] + '];\n'
+        runnames = runnames.rsplit(';', 1)[0] + '];\n'
     else:
         uuidMatrix = 'no value'
         runnames =   'no value'
