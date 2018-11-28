@@ -1,0 +1,517 @@
+\documentclass{article}
+  \addtolength{\oddsidemargin}{-1.25in}
+  \addtolength{\evensidemargin}{-1.25in}
+  \addtolength{\textwidth}{2.5in}
+  \addtolength{\topmargin}{-.875in}
+  \addtolength{\textheight}{1.75in}
+\begin{document}
+
+<<startup, echo=FALSE, message=FALSE, warning=FALSE>>=
+# code written by Joset A. Etzel (jetzel@wustl.edu) https://pages.wustl.edu/dualmechanisms   http://ccpweb.wustl.edu/
+# https://opensource.org/licenses/BSD-3-Clause 
+# Copyright 2018, Cognitive Control & Psychopathology Lab, Psychological & Brain Sciences, Washington University in St. Louis (USA)
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the 
+#    documentation and/or other materials provided with the distribution.
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this
+#    software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+# TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+rm(list=ls());    # clear R's workspace to start fresh; 
+
+# **** change these lines
+read.erecovery <- TRUE;  # if TRUE, read from e-recovery files; if FALSE, read from .csv files. The .csv files can be those
+# created by the code in this knitr file, or generated elsewhere, so long as the needed column names are unchanged.
+convert.txt.to.csv <- FALSE;   # if read.erecovery and convert.txt.to.csv TRUE, the eprime erecovery files are written as .csv format in in.path
+# if read.erecovery is FALSE, convert.txt.to.csv has no effect.
+
+in.path <- "d:/gitFiles_ccplabwustl/dualmechanisms/analysesAndReports/taskBehavioralSummaries/NEUROIMAGING/exampleDataset/input/";    
+# top-level path to the eprime e-recovery .txt (if read.erecovery) or .csv files (otherwise)
+# the input (e-recovery) files need to be in subdirectories of in.path, with files for each person in a separate subdirectory
+# named with the subject ID (matching the sub.id variable); see example dataset.
+
+sub.id <- "132017";     # the subject ID for this summary knitr, as named in the input files and subdirectory
+use.robust.stats <- TRUE;   # whether to use robust statistics or not for the RT mean and SEM 
+# robust statistics are not used for accuracy/error rate (even when use.robust.stats == TRUE) since most participants have very few errors.
+
+
+# **** should not need to change these lines
+task.id <- "Axcpt";   # as named in the input files
+session.ids <- c("baseline", "proactive", "reactive");    
+sess.ids <- c("Bas", "Pro", "Rea");      # shorter version of the session.ids; same order as session.ids
+run.ids <- c("run1", "run2");    # run IDs, as named in the input files. 
+stim.ids <- c("AX", "AY", "BX", "BY", "Ang", "Bng");  # stimulus names, as in the eprime output
+
+
+# the edatparser library is needed for converting the eprime e-erecovery text files; not if only using .csv files 
+# download edatparser from https://github.com/ahebrank/edatparser; Copyright (c) 2015 Andy Hebrank
+if (read.erecovery == TRUE) { 
+  if (require(edatparser) == FALSE) { print("did not find the edatparser library; please install"); }  
+}
+
+# the trimse function from the WRS2 library is used for robust SEM
+if (use.robust.stats == TRUE) {
+  if (require(WRS2) == FALSE) { print("did not find the WRS2 library; please install"); } 
+  do.trim <- 0.1;  # how much trimming to do in the mean and SEM
+}
+
+
+# read the eprime files (e-recovery txt OR .csv) for this person, storing them in a list so they only have to be read once.
+all.ins <- vector("list", length(session.ids)*length(run.ids));   # make a blank list
+all.ins <- setNames(all.ins, c(paste0(sess.ids[1], 1:length(run.ids)), paste0(sess.ids[2], 1:length(run.ids)), 
+                               paste0(sess.ids[3], 1:length(run.ids))));    # assign the list slot names
+# if only two runs, this is equivalent: all.ins <- list(Bas1=NA, Bas2=NA, Pro1=NA, Pro2=NA, Rea1=NA, Rea2=NA);
+
+for (ssid in 1:length(session.ids)) {
+  for (rid in 1:length(run.ids)) {     # ssid <- 1; rid <- 1;
+    if (exists("in.tbl")) { rm(in.tbl); }   # clean up memory
+    fname <- paste0(in.path, sub.id, "/", sub.id, "_", session.ids[ssid], "_", task.id, sess.ids[ssid], "_", run.ids[rid]); 
+    if (read.erecovery == TRUE) {    # want to read a eprime text recovery file
+      if (file.exists(paste0(fname, ".txt"))) {     # and the eprime text recovery file exists, so process it
+        edat.tbl <- as.data.frame(edat(paste0(fname, ".txt")));    # read in the erecovery text file and convert to a data.frame.
+        
+        # the scanstart.RTTime: field is NOT included by edatparser in edat.tbl, so we need to read it directly.
+        tmp <- readLines(con <- file(paste0(fname, ".txt"), encoding="UCS-2LE"));  # specify windows encoding to avoid stray characters.
+        close(con);    # clean up the connection to the input file
+        
+        scanstart.RTTime <- tmp[grep(pattern='scanstart.RTTime:', x=tmp)];   # find the line with scanstart.RTTime
+        if (length(scanstart.RTTime) != 1) { stop("didn't find the scanstart.RTTime field!"); }
+        # extract the number part (scanner onset) from the string
+        scanstart.RTTime <- as.numeric(strsplit(scanstart.RTTime, ": ")[[1]][2]);  
+        if ((scanstart.RTTime > 100) != TRUE) { stop("very short scanstart.RTTime"); }
+        
+        in.tbl <- cbind(edat.tbl, scanstart.RTTime);    # add the scanstart.RTTime column to the table made by edat parser
+        
+        # convert columns read in as strings to numbers so can do later plotting and calculations
+        in.tbl$Flicker.OnsetTime <- as.numeric(in.tbl$Flicker.OnsetTime);
+        in.tbl$ProbeSlide.RTTime <- as.numeric(in.tbl$ProbeSlide.RTTime);
+        in.tbl$ProbeSlide.OffsetTime <- as.numeric(in.tbl$ProbeSlide.OffsetTime);
+        in.tbl$CueSlide.ACC <- as.numeric(in.tbl$CueSlide.ACC);
+        in.tbl$CueSlide.RT <- as.numeric(in.tbl$CueSlide.RT);
+        in.tbl$ProbeSlide.ACC <- as.numeric(in.tbl$ProbeSlide.ACC);
+        in.tbl$ProbeSlide.RT <- as.numeric(in.tbl$ProbeSlide.RT);
+        
+        if (convert.txt.to.csv == TRUE) {    # write out as a csv for future use. This will overwrite existing files with this name.
+          write.csv(in.tbl, paste0(fname, ".csv"), row.names=FALSE); 
+        }
+      } 
+    } else {   # read.erecovery == FALSE, so  want to read a .csv file
+      if (file.exists(paste0(fname, ".csv"))) {    # a csv version exists, so read it
+        in.tbl <- read.csv(paste0(fname, ".csv")); 
+      } else { stop(paste0("read.erecovery == FALSE but missing ", fname, ".csv")); }
+    }
+    
+    # store the run's in.tbl (if it exists) into the list spot for this session & run
+    if (exists("in.tbl")) { all.ins[[paste0(sess.ids[ssid], rid)]] <- in.tbl; }
+  }
+}
+
+@
+
+\noindent \textbf{\Sexpr{sub.id}\textunderscore Axcpt\textunderscore singleNEUROIMAGING.rnw} \par
+\noindent compiled \today\  \par
+\noindent This file summarizes \Sexpr{sub.id}'s behavioral performance on the DMCC Axcpt task, NEUROIMAGING version. \par
+\vspace{0.1 cm} 
+
+\subsection*{Quality Control: expected stimuli and responses?}
+\noindent The first block of code reads in the eprime output files (e-recovery or .csv), and then checks whether the expected number and types of trials was present in each run and block. Unless a run was known to end early, any error messages printed below should be investigated. \par
+<<code1, echo=FALSE>>=
+
+# check if the number of trials of each type in each block is correct. 
+# $baseline and reactive BlockList: 2, 4, 6 for run 1 and 10, 12, 14 for run 2.
+
+# for baseline & proactive: $Location == "center"   %probelocation == "50%"  $Probeimage == "white.tif"
+# for reactive:  $Location == "Above", "Below"   %probelocation == "25%", "75%"  $Probeimage == "white.tif", "red.tif"
+# AX: white border, upper half      AY: red border, lower half
+# BX: red border, lower half        BY: white border, upper half
+# A no-go: red border, lower half   B no-go: red border, lower half
+
+# how many trials of each type should be in each block; ordered 
+tt.ids <- c("AX", "AY", "BX", "BY", "Ang", "Bng");
+tt.cts <- c(8, 2, 2, 8, 2, 2);  # same for all session types
+
+# where the #  "AX"  "AY"  "BX"  "BY"  "Ang" "Bng"
+need.Location <- c("Above", "Below", "Below", "Above", "Below", "Below");
+need.probeloc <- c("25%",   "75%",   "75%",   "25%",  "75%",    "75%");
+need.Probeimage <- c("white.tif", "red.tif", "red.tif", "white.tif", "red.tif", "red.tif");
+
+found.error <- FALSE;
+for (ssid in 1:length(session.ids)) { 
+  for (rid in 1:length(run.ids)) {    # rid <- 2; ssid <- 3;
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {
+      in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # just to simplify the code
+
+      # block list identification numbers not uniform, so need to find them.
+      tmp.all <- in.tbl[,paste0(session.ids[ssid], "BlockList")]
+      tmp <- unique(tmp.all);
+      tmp.keep <- rep(TRUE, length(tmp));
+      for (i in 1:length(tmp)) { if (length(which(tmp.all == tmp[i])) == 1) { tmp.keep[i] <- FALSE; }   }
+      block.ids <- tmp[which(tmp.keep == TRUE)];
+      if (length(block.ids) != 3) { print(paste("not three blocks?", fname)); found.error <- TRUE; }
+
+      # check if the expected number of trials of each type are in each block
+      for (bid in 1:length(block.ids)) { 
+        for (i in 1:length(tt.ids)) {    # bid <- 1; i <- 1;
+          num <- length(which(in.tbl$TrialType == tt.ids[i] & in.tbl[,paste0(session.ids[ssid], "BlockList")] == block.ids[bid]));
+          if (tt.cts[i] != num) { 
+            txt <- paste0("... ", tt.ids[i], ", block ", block.ids[bid], " count mismatch: expected ", tt.cts[i], ", found ", num);
+            print(txt, quote=FALSE); found.error <- TRUE;
+          }
+        }
+      }
+      
+      # check if the expected cue colors and locations are present
+      if (session.ids[ssid] == "reactive") {
+        for (i in 1:length(tt.ids)) {   # i <- 1;
+          inds <- which(in.tbl$TrialType == tt.ids[i]);      
+          tmp <- unique(in.tbl$Location[inds]);
+          if ((length(tmp) != 1) | (tmp[1] !=  need.Location[i])) { print(paste0("... $Location is not right for ", tt.ids[i], "?"));  
+            found.error <- TRUE;}
+          tmp <- unique(in.tbl$probeloc[inds]);
+          if ((length(tmp) != 1) | (tmp[1] != need.probeloc[i])) { print(paste0("... $probeloc is not right for ", tt.ids[i], "?")); 
+             found.error <- TRUE; }
+          tmp <- unique(in.tbl$Probeimage[inds]);
+          if ((length(tmp) != 1) | (tmp[1] != need.Probeimage[i])) { print(paste0("... $Probeimage is not right for ", tt.ids[i], "?")); 
+             found.error <- TRUE;}
+        } 
+      } else {   # for baseline & proactive, all trials: $Location == "center"   %probeloc == "50%"  $Probeimage == "white.tif"
+        tmp <- unique(in.tbl$Location);
+        if ((!is.na(tmp[1])) | (tmp[2] != "center")) { print("... $Location is not center?");  found.error <- TRUE; }
+        tmp <- unique(in.tbl$probeloc);
+        if ((!is.na(tmp[1])) | (tmp[2] != "50%")) { print("... $probeloc is not 50%?");  found.error <- TRUE; }
+        tmp <- unique(in.tbl$Probeimage);
+        if ((!is.na(tmp[1])) | (tmp[2] != "white.tif")) { print("... $Probeimage is not white.tif?");  found.error <- TRUE; }
+      }      
+    } 
+  }
+}
+print(paste("Found an error in the AX-CPT trial counting or stimulus matching?", found.error));
+
+@
+
+\noindent These plots show the time and type of every trial (blues and greens) and response (reds); black tick marks indicate correct trials. The trial types and responses should be random (e.g., not an entire block of AX), and errors should be approximately equal across the runs (check if a participant appears to have stopped responding or suddenly increased in errors).  \par
+\vspace{0.2 cm} 
+\noindent To increase visibility of the different trial-type colors, AX and BY are plotted in the center, AY and BX a little below, and Ang and Bng a bit above. There are tick marks (indicating correct responses) for no-go trials without a response (since no response is correct).  \par
+\vspace{0.1 cm} 
+<<code3, echo=FALSE, dev='pdf', fig.height=2, fig.width=7, fig.align='center'>>=
+par(mar=c(2, 1.5, 1.5, 0.75), mgp=c(1.1, 0.2, 0), tcl=-0.3); 
+# mar: c(bottom, left, top, right) gives the number of lines of margin. Default is c(5, 4, 4, 2) + 0.1.
+
+# plot the onset times
+#stim.ids <- c("AX", "AY", "BX", "BY", "Ang", "Bng");
+stim.cols <- c("blue", "dodgerblue", "darkgoldenrod4", "seagreen", "black", "darkgrey");   # plotting colors; same order as stim.ids
+stim.offs <- c(0, -0.02, -0.02, 0, 0.02, 0.02);  # offset for the markers, to increase visibility
+but.cols <- c("magenta", "red");
+
+for (ssid in 1:length(session.ids)) {      # ssid <- 1;
+  plot(x=0, y=0, xlim=c(0,750), ylim=c(0.2,(length(run.ids)+0.3)), col='white', xlab="time (seconds)", ylab="", main="", yaxt='n', 
+       xaxs='i', cex.axis=0.7, cex.lab=0.7);
+  mtext(paste0("AX-CPT ", session.ids[ssid], ", ", sub.id), side=3, cex=0.7, line=0.1);
+  axis(side=2, at=1:length(run.ids), labels=paste0("run", 1:length(run.ids)), cex.axis=0.7, cex.lab=0.7);
+  
+  for (rid in 1:length(run.ids)) {     # rid <- 1;
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {     # check if there is data for this session & run
+      in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # get the table out of the list to simplify the code
+      # set the start value and then subtract from all events onsets to obtain the true onsets. 
+      start.time <- in.tbl$scanstart.RTTime[1]; 
+      if (is.na(start.time) | start.time < 1000) { stop("invalid start.value"); }
+      
+      # trial types
+      for (i in 1:length(stim.ids)) {
+        inds <- which(in.tbl$TrialType == stim.ids[i]);
+        vals <- (in.tbl$Flicker.OnsetTime[inds] - start.time)/1000;  # YES, use OnsetTime, not StartTime
+        points(x=vals, y=rep(rid-0.08+stim.offs[i],length(vals)), pch='|', col=stim.cols[i]); 
+      }
+      
+      # show the button pushes
+      for (i in 1:2) {
+        inds <- which(in.tbl$ProbeSlide.RESP == i);   # this isn't looking for NAs, accuracy, etc: just the actual button pushes
+        vals <- (in.tbl$ProbeSlide.RTTime[inds] - start.time)/1000;      
+        points(x=vals, y=rep(rid+0.05,length(vals)), pch='|', col=but.cols[i]); 
+      }
+      
+      # mark accurate responses
+      inds <- which(in.tbl$ProbeSlide.ACC == 1);  
+      vals <- (in.tbl$ProbeSlide.OffsetTime[inds] - start.time)/1000;  # set to ProbeSlide.OffsetTime so the no-go non-responses will be properly marked 
+      points(x=vals, y=rep(rid+0.19,length(vals)), pch="'");    
+    }
+  }
+  legend("bottomleft", legend=stim.ids, col=stim.cols, bty='n', cex=0.6, horiz=TRUE, lwd=2); 
+  legend("bottomright", legend=c("button1", "button2"), col=but.cols, bty='n', cex=0.6, horiz=TRUE, lwd=2); 
+  box();
+}
+
+@
+
+\newpage
+\subsection*{Single-subject statistics for \Sexpr{sub.id}}
+\noindent ACC is accuracy rate; ERR is error rate. Plot error bars are standard error of the mean. \par
+\noindent \textbf{cue:} We hope for consistent RT and consistently low error rates (high accuracy) across sessions and trial types. \par
+\noindent \textbf{probe:} We hope that the error rate will be higher and RT slower on AY and BX trials than AX and BY trials. \par
+\noindent Robust statistics for RT? \Sexpr{use.robust.stats} (Robust statistics never used for ERR, since typically very few errors.) \par
+\vspace{0.2 cm}
+<<code4, dev='pdf', echo=FALSE, fig.height=2.5, fig.width=7.5, fig.align='center'>>= 
+layout(matrix(1:3, c(1,3)));
+par(mar=c(1.5, 2, 1.5, 0.75), mgp=c(1.1, 0.2, 0), tcl=-0.3);
+# mar: c(bottom, left, top, right) gives the number of lines of margin on the four sides. Default is c(5, 4, 4, 2) + 0.1.
+
+# calculate the summary statistics
+stat.lbls <- c(".mean", ".sem");  # sum.tbl column labels   # SEM: standard deviation/sqrt(num observations)
+need.cols <- c("TrialType", "CueSlide.ACC", "CueSlide.RT", "CueSlide.RESP", "ProbeSlide.ACC", "ProbeSlide.RT", "ProbeSlide.RESP");
+
+sum.tbl <- data.frame(array(NA, c(length(session.ids)*length(stim.ids), 13)));
+colnames(sum.tbl) <- c("session", "stim.id", "num.trials", "cueERR.mean", paste0("cueACC", stat.lbls), paste0("cueRT", stat.lbls),
+                       "probeERR.mean", paste0("probeACC", stat.lbls), paste0("probeRT", stat.lbls));
+ctr <- 1;  # row counter for sum.tbl
+for (ssid in 1:length(session.ids)) {    # ssid <- 3;
+  # want statistics calculated for all the runs in this session together (not each run separately)
+  # so this while loop appends the eprime tables for the runs together
+  if (exists('in.tbl')) { rm(in.tbl); }   # in.tbl for this session will be created in the loop
+  rid <- 1;   # initialize run counter
+  while (rid <= length(run.ids)) {  
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {    # have data for this run
+      tmp.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]][,need.cols];   # just the needed columns
+      if (exists('in.tbl')) { in.tbl <- rbind(in.tbl, tmp.tbl); } else { in.tbl <- tmp.tbl; }
+    }
+    rid <- rid + 1;   # increment run counter
+  }
+  
+  if (exists("in.tbl")) {
+    for (sid in 1:length(stim.ids)) {    # sid <- 1;
+      inds <- which(in.tbl$TrialType == stim.ids[sid]);  
+      if (length(inds) == 0) { stop("not present?"); }
+      sum.tbl$session[ctr] <- session.ids[ssid];
+      sum.tbl$stim.id[ctr] <- stim.ids[sid];
+      sum.tbl$num.trials[ctr] <- length(inds);
+      
+      if (length(which(!is.na(in.tbl$CueSlide.RESP[inds]))) > 0) {   # they did respond, so check RT & ACC
+        vals <- in.tbl$CueSlide.ACC[inds];  
+        sum.tbl$cueACC.mean[ctr] <- mean(vals);     # always calculate regular mean and SEM for ACC
+        sum.tbl$cueACC.sem[ctr] <- sd(vals)/sqrt(length(vals));
+        sum.tbl$cueERR.mean[ctr] <- 1 - sum.tbl$cueACC.mean[ctr];
+        
+        inds.rt <- which(in.tbl$TrialType == stim.ids[sid] & in.tbl$CueSlide.ACC == 1);  # RT calculated from accurate trials only
+        vals <- in.tbl$CueSlide.RT[inds.rt];  
+        if (use.robust.stats == FALSE) {   # calculate regular mean and SEM
+          sum.tbl$cueRT.mean[ctr] <- mean(vals); 
+          sum.tbl$cueRT.sem[ctr] <- sd(vals)/sqrt(length(vals));
+        } else {   # calculate robust (trimmed) mean and SEM
+          sum.tbl$cueRT.mean[ctr] <- mean(vals, trim=do.trim); 
+          sum.tbl$cueRT.sem[ctr] <- trimse(vals, tr=do.trim); 
+        }
+      }
+      
+      
+      # accuracy and RT for the ProbeSlide
+      vals <- in.tbl$ProbeSlide.ACC[inds];  
+      sum.tbl$probeACC.mean[ctr] <- mean(vals);        # always calculate regular mean and SEM for ACC
+      sum.tbl$probeACC.sem[ctr] <- sd(vals)/sqrt(length(vals));
+      sum.tbl$probeERR.mean[ctr] <- 1 - sum.tbl$probeACC.mean[ctr];
+      
+      inds.rt <- which(in.tbl$TrialType == stim.ids[sid] & in.tbl$ProbeSlide.ACC == 1);  # RT calculated from accurate trials only
+      if (length(inds.rt) > 0) {    # at least one correct response, so can do RT (won't be any correct no-go trials with a response)
+        vals <- in.tbl$ProbeSlide.RT[inds.rt];  
+        if (use.robust.stats == FALSE) {     # calculate regular mean and SEM
+          sum.tbl$probeRT.mean[ctr] <- mean(vals); 
+          sum.tbl$probeRT.sem[ctr] <- sd(vals)/sqrt(length(vals));
+        } else {   # calculate robust (trimmed) mean and SEM
+          sum.tbl$probeRT.mean[ctr] <- mean(vals, trim=do.trim); 
+          sum.tbl$probeRT.sem[ctr] <- trimse(vals, tr=do.trim); 
+        }
+      }
+      ctr <- ctr + 1;
+    }
+  }
+}
+sum.tbl <- sum.tbl[1:(ctr-1),];  # take off empty rows
+
+
+
+# plot the summary statistics
+  
+# stim.ids <- c("AX", "AY", "BX", "BY", "Ang", "Bng");
+stim.cols <- c("lightpink1", "lightpink3", "palegreen1", "palegreen4", "lightblue1", "lightblue3");  # same order as stim.ids
+lefts <- c(-0.3, -0.2, -0.1, 0, 0.1, 0.2);  # plotting offsets for the bars; same order as stim.ids
+cx <- 1;
+off <- 0.1;
+
+# plotting function to draw the bar and standard error markers
+do.bar <- function(stim.ind, base.num, at.top, at.sem) {
+  rect(xleft=base.num+lefts[stim.ind], xright=base.num+lefts[stim.ind]+off, ybottom=y.lim[1], ytop=at.top, 
+       border=NA, col=stim.cols[stim.ind]);
+  if (!is.na(at.sem) & at.sem > 0) {
+    mid <- ((base.num+lefts[stim.ind])+(base.num+lefts[stim.ind]+off))/2;
+    arrows(x0=mid, x1=mid, y0=at.top, y1=at.top+at.sem, angle=90, length=0.025)
+    arrows(x0=mid, x1=mid, y0=at.top, y1=at.top-at.sem, angle=90, length=0.025);
+  }
+}
+
+
+# make the barplots
+if (use.robust.stats == TRUE) { yttl <- "mean RT (robust; accurate trials only)"; } else { yttl <- "mean RT (accurate trials only)"; }
+y.lim <- c(0, 1300)
+for (ssid in 1:length(session.ids)) {   # ssid <- 3;
+  plot(x=0, y=0, xlim=c(0.3,2.5), ylim=y.lim, col='white', ylab=yttl, xlab="", xaxt='n', main="", cex.lab=cx, cex.axis=cx);
+  mtext(side=3, text=paste(session.ids[ssid], "AX-CPT,", sub.id), line=0.1, cex=0.8); 
+  axis(side=1, at=1:2, labels=c("cueRT", "probeRT"));
+  grid(col='darkgrey');
+  lines(x=c(-1,5), y=c(0,0), col='darkgrey');
+  
+  for (sid in 1:length(stim.ids)) {   # sid <- 1;
+    ind <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$stim.id == stim.ids[sid]);
+    if (length(ind) == 1) {      
+      do.bar(sid, 1, at.top=sum.tbl$cueRT.mean[ind], at.sem=sum.tbl$cueRT.sem[ind]);
+      do.bar(sid, 2, at.top=sum.tbl$probeRT.mean[ind], at.sem=sum.tbl$probeRT.sem[ind]);
+    }
+  }
+  legend(x="topleft", fill=stim.cols, legend=stim.ids, bty='n', cex=0.9); 
+  box();
+}
+
+
+yttl <- "mean error rate"; 
+y.lim <- c(0, 1)
+for (ssid in 1:length(session.ids)) {   # ssid <- 3;
+  plot(x=0, y=0, xlim=c(0.2,2.5), ylim=y.lim, col='white', ylab=yttl, xlab="", xaxt='n', main="", cex.lab=cx, cex.axis=cx);
+  mtext(side=3, text=paste(session.ids[ssid], "AX-CPT,", sub.id), line=0.1, cex=0.8); 
+  axis(side=1, at=1:2, labels=c("cueERR", "probeERR"));
+  grid(col='darkgrey');
+  lines(x=c(-1,5), y=c(0,0), col='darkgrey');
+  
+  for (sid in 1:length(stim.ids)) {   # sid <- 1;
+    ind <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$stim.id == stim.ids[sid]);
+    if (length(ind) == 1) { 
+      # cue spot
+      if (!is.na(sum.tbl$cueERR.mean[ind])) {
+        if (sum.tbl$cueERR.mean[ind] == 0 & sum.tbl$cueACC.sem[ind] == 0) { 
+          lines(x=c(1+lefts[sid], 1+lefts[sid]+off), y=c(0,0), col=stim.cols[sid]);    # so a little line is plotted
+        } else { do.bar(sid, 1, at.top=sum.tbl$cueERR.mean[ind], at.sem=sum.tbl$cueACC.sem[ind]); }
+      }
+      
+      # probe spot
+      if (!is.na(sum.tbl$probeERR.mean[ind])) {
+        if (sum.tbl$probeERR.mean[ind] == 0 & sum.tbl$probeACC.sem[ind] == 0) { 
+          lines(x=c(2+lefts[sid], 2+lefts[sid]+off), y=c(0,0), col=stim.cols[sid]);    # so a little line is plotted
+        } else { do.bar(sid, 2, at.top=sum.tbl$probeERR.mean[ind], at.sem=sum.tbl$probeACC.sem[ind]); }
+      }
+    }
+  }
+  legend(x="topleft", fill=stim.cols, legend=stim.ids, bty='n', cex=0.9); 
+  box();
+}
+
+
+
+# print the results table (sum.tbl, calculated above) under the plots
+options(width=100);  # allow more columns to be printed
+print(sum.tbl[,c(1:4,7,9,10, 12)]);
+
+@
+
+\newpage
+\subsection*{AX-CPT derived measures for \Sexpr{sub.id}}
+\noindent \textbf{Robust statistics} for RT? \Sexpr{use.robust.stats} (Only used for RT mean calculations.) \par
+\vspace{0.1 cm}
+<<code5, echo=FALSE>>= 
+
+# for ease of printing results, store the accuracy and RT derived measures in separate tables
+dm.tbl.a <- data.frame(array(NA, c(length(session.ids), 5)));
+colnames(dm.tbl.a) <- c("session.id", "Acue.bias", "BX.interference", "dprime.context", "PBI.errors");
+dm.tbl.rt <- data.frame(array(NA, c(length(session.ids), 5)));
+colnames(dm.tbl.rt) <- c("session.id", "BX.interference.RT", "PBI.RT", "BX.interference.RTnorm", "PBI.RTnorm");
+
+for (ssid in 1:length(session.ids)) {    # ssid <- 1;
+  # want statistics calculated for all the runs in this session together (not each run separately)
+  # so this while loop appends the eprime tables for the runs together
+  if (exists('in.tbl')) { rm(in.tbl); }   # in.tbl for this session will be created in the loop
+  rid <- 1;   # initialize run counter
+  while (rid <= length(run.ids)) {  
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {    # have data for this run
+      tmp.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]][,need.cols];   # just the needed columns
+      if (exists('in.tbl')) { in.tbl <- rbind(in.tbl, tmp.tbl); } else { in.tbl <- tmp.tbl; }
+    }
+    rid <- rid + 1;   # increment run counter
+  }
+  
+  if (exists("in.tbl")) {   # found data for at least one run, so calculate the stats
+    in.tbl <- in.tbl[which(!is.na(in.tbl$TrialType)),];   # TrialType = NA are not trials; take out here to simplify counting
+    dm.tbl.a$session.id[ssid] <- session.ids[ssid];   # store session label in results tables
+    dm.tbl.rt$session.id[ssid] <- session.ids[ssid];
+    
+    # accuracy-based derived measures
+    # Most of these depend on using the log-linear (Hautus) correction for hits (AX) & false alarms (AY, BX, BY):
+    # hits = (#correct trials + 0.5) / (# total trials + 1)
+    # false alarms = (# errors + 0.5) / (# total trials + 1) 
+    AX.h <- (length(which(in.tbl$TrialType == "AX" & in.tbl$ProbeSlide.ACC == 1)) + 0.5) / (length(which(in.tbl$TrialType == "AX")) + 1);
+    AY.fa <- (length(which(in.tbl$TrialType == "AY" & in.tbl$ProbeSlide.ACC == 0)) + 0.5) / (length(which(in.tbl$TrialType == "AY")) + 1);
+    BX.fa <- (length(which(in.tbl$TrialType == "BX" & in.tbl$ProbeSlide.ACC == 0)) + 0.5) / (length(which(in.tbl$TrialType == "BX")) + 1);
+    BY.fa <- (length(which(in.tbl$TrialType == "BY" & in.tbl$ProbeSlide.ACC == 0)) + 0.5) / (length(which(in.tbl$TrialType == "BY")) + 1);
+    
+    # Then based on these corrected values, the derived measures are: 
+    dm.tbl.a$Acue.bias[ssid] <- (qnorm(AX.h) + qnorm(AY.fa))/2;    # A-cue bias: (qnorm(AX) + qnorm(AY))/2
+    dm.tbl.a$BX.interference[ssid] <- qnorm(BX.fa) - qnorm(BY.fa);   # BX error interference: qnorm(BX) - qnorm(BY)
+    dm.tbl.a$dprime.context[ssid] <- qnorm(AX.h) - qnorm(BX.fa);    # d'- context: qnorm(AX) - qnorm(BX)
+    dm.tbl.a$PBI.errors[ssid] <- (AY.fa - BX.fa) / (AY.fa + BX.fa);   # PBI errors: (AY - BX) / (AY + BX)
+    
+    
+    # RT-based derived measures
+    # first, collect the RTs for the accurate trials of the needed types
+    AY.RTs <- in.tbl$ProbeSlide.RT[which(in.tbl$TrialType == "AY" & in.tbl$ProbeSlide.ACC == 1)];
+    BX.RTs <- in.tbl$ProbeSlide.RT[which(in.tbl$TrialType == "BX" & in.tbl$ProbeSlide.ACC == 1)];
+    BY.RTs <- in.tbl$ProbeSlide.RT[which(in.tbl$TrialType == "BY" & in.tbl$ProbeSlide.ACC == 1)];
+    
+    # BX RT interference: BX RT (correct) - BY RT (correct)
+    # PBI RT:  (AY RT (correct) - BX RT (correct))  / (AY RT (correct) + BX RT (correct))
+    if (use.robust.stats == FALSE) { 
+      dm.tbl.rt$BX.interference.RT[ssid] <- mean(BX.RTs) - mean(BY.RTs); 
+      dm.tbl.rt$PBI.RT[ssid] <- (mean(AY.RTs) - mean(BX.RTs)) / (mean(AY.RTs) + mean(BX.RTs)); 
+    } else { 
+      dm.tbl.rt$BX.interference.RT[ssid] <- mean(BX.RTs, trim=do.trim) - mean(BY.RTs, trim=do.trim); 
+      dm.tbl.rt$PBI.RT[ssid] <- (mean(AY.RTs, trim=do.trim) - mean(BX.RTs, trim=do.trim)) / (mean(AY.RTs, trim=do.trim) + mean(BX.RTs, trim=do.trim)); 
+    }
+    
+  
+    # compute the RT measures after z-normalizing the data, by computing each participant's grand mean
+    # RT and grand mean SD, then for each correct trial: z-value RT =  (trial RT - mean) / SD.
+    # Then use the z-normalized means to compute the derived values again, which will give values in terms of effect size.
+    # calculate normal (not robust) mean and standard deviation of RT for all trials (not just correct)
+    g.mean <- mean(in.tbl$ProbeSlide.RT[which(in.tbl$ProbeSlide.RT > 0)]);  
+    g.sd <- sd(in.tbl$ProbeSlide.RT[which(in.tbl$ProbeSlide.RT > 0)]);  
+    
+    AY.RTs.z <- (AY.RTs - g.mean)/g.sd;
+    BX.RTs.z <- (BX.RTs - g.mean)/g.sd;
+    BY.RTs.z <- (BY.RTs - g.mean)/g.sd;
+    
+    # BX RT interference: BX RT (correct) - BY RT (correct)
+    # PBI RT:  (AY RT (correct) - BX RT (correct))  / (AY RT (correct) + BX RT (correct))
+    if (use.robust.stats == FALSE) { 
+      dm.tbl.rt$BX.interference.RTnorm[ssid] <- mean(BX.RTs.z) - mean(BY.RTs.z); 
+      dm.tbl.rt$PBI.RTnorm[ssid] <- (mean(AY.RTs.z) - mean(BX.RTs.z)) / (mean(AY.RTs.z) + mean(BX.RTs.z)); 
+    } else { 
+      dm.tbl.rt$BX.interference.RTnorm[ssid] <- mean(BX.RTs.z, trim=do.trim) - mean(BY.RTs.z, trim=do.trim); 
+      dm.tbl.rt$PBI.RTnorm[ssid] <- (mean(AY.RTs.z, trim=do.trim) - mean(BX.RTs.z, trim=do.trim)) / 
+                                    (mean(AY.RTs.z, trim=do.trim) + mean(BX.RTs.z, trim=do.trim)); 
+    }
+  }
+}
+
+
+# print the derived measures tables
+print("AX-CPT accuracy-based derived measures");
+print(dm.tbl.a);
+
+print("");
+print("AX-CPT RT derived measures");
+print(dm.tbl.rt);
+
+@
+
+\end{document}

@@ -1,0 +1,770 @@
+\documentclass{article}
+  \addtolength{\oddsidemargin}{-1.25in}
+  \addtolength{\evensidemargin}{-1.25in}
+  \addtolength{\textwidth}{2.5in}
+  \addtolength{\topmargin}{-.875in}
+  \addtolength{\textheight}{1.75in}
+\begin{document}
+
+<<startup, echo=FALSE, message=FALSE, warning=FALSE>>=
+# code written by Joset A. Etzel (jetzel@wustl.edu) https://pages.wustl.edu/dualmechanisms   http://ccpweb.wustl.edu/
+# https://opensource.org/licenses/BSD-3-Clause 
+# Copyright 2018, Cognitive Control & Psychopathology Lab, Psychological & Brain Sciences, Washington University in St. Louis (USA)
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the 
+#    documentation and/or other materials provided with the distribution.
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this
+#    software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+# TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+rm(list=ls());    # clear R's workspace to start fresh; 
+
+# **** change these lines
+read.erecovery <- TRUE;  # if TRUE, read from e-recovery files; if FALSE, read from .csv files. The .csv files can be those
+# created by the code in this knitr file, or generated elsewhere, so long as the needed column names are unchanged.
+convert.txt.to.csv <- FALSE;   # if read.erecovery and convert.txt.to.csv TRUE, the eprime erecovery files are written as .csv format in in.path
+# if read.erecovery is FALSE, convert.txt.to.csv has no effect.
+
+sub.id <- "102008";     # the subject ID for this summary knitr, as named in the input files and subdirectory
+use.robust.stats <- TRUE;   # whether to use robust statistics or not for the RT mean and SEM 
+# robust statistics are not used for accuracy/error rate (even when use.robust.stats == TRUE) since most participants have very few errors.
+
+in.path <- "d:/gitFiles_ccplabwustl/dualmechanisms/analysesAndReports/taskBehavioralSummaries/NEUROIMAGING/exampleDataset/input/";    
+# top-level path to the eprime e-recovery .txt (if read.erecovery) or .csv files (otherwise)
+# the input (e-recovery) files need to be in subdirectories of in.path, with files for each person in a separate subdirectory
+# named with the subject ID (matching the sub.id variable); see example dataset.
+
+
+
+# **** should not need to change these lines
+task.id <- "Stroop";   # as named in the input files
+session.ids <- c("baseline", "proactive", "reactive");    
+sess.ids <- c("Bas", "Pro", "Rea");      # shorter version of the session.ids; same order as session.ids
+run.ids <- c("run1", "run2");    # run IDs, as named in the input files. 
+stim.ids <- c("AX", "AY", "BX", "BY", "Ang", "Bng");  # stimulus names, as in the eprime output
+
+
+# the edatparser library is needed for converting the eprime e-erecovery text files; not if only using .csv files 
+# download edatparser from https://github.com/ahebrank/edatparser; Copyright (c) 2015 Andy Hebrank
+if (read.erecovery == TRUE) { 
+  if (require(edatparser) == FALSE) { print("did not find the edatparser library; please install"); }  
+}
+
+# the trimse function from the WRS2 library is used for robust SEM
+if (use.robust.stats == TRUE) {
+  if (require(WRS2) == FALSE) { print("did not find the WRS2 library; please install"); } 
+  do.trim <- 0.1;  # how much trimming to do in the mean and SEM
+}
+
+
+# read the eprime files (e-recovery txt OR .csv) for this person, storing them in a list so they only have to be read once.
+all.ins <- vector("list", length(session.ids)*length(run.ids));   # make a blank list
+all.ins <- setNames(all.ins, c(paste0(sess.ids[1], 1:length(run.ids)), paste0(sess.ids[2], 1:length(run.ids)), 
+                               paste0(sess.ids[3], 1:length(run.ids))));    # assign the list slot names
+# if only two runs, this is equivalent: all.ins <- list(Bas1=NA, Bas2=NA, Pro1=NA, Pro2=NA, Rea1=NA, Rea2=NA);
+
+for (ssid in 1:length(session.ids)) {
+  for (rid in 1:length(run.ids)) {     # ssid <- 1; rid <- 1;
+    if (exists("in.tbl")) { rm(in.tbl); }   # clean up memory
+    fname <- paste0(in.path, sub.id, "/", sub.id, "_", session.ids[ssid], "_", task.id, sess.ids[ssid], "_", run.ids[rid]); 
+    if (read.erecovery == TRUE) {    # want to read a eprime text recovery file
+      if (file.exists(paste0(fname, ".txt"))) {     # and the eprime text recovery file exists, so process it
+        edat.tbl <- as.data.frame(edat(paste0(fname, ".txt")));    # read in the erecovery text file and convert to a data.frame.
+        
+        # the scanstart.RTTime: field is NOT included by edatparser in edat.tbl, so we need to read it directly.
+        tmp <- readLines(con <- file(paste0(fname, ".txt"), encoding="UCS-2LE"));  # specify windows encoding to avoid stray characters.
+        close(con);    # clean up the connection to the input file
+        
+        scanstart.RTTime <- tmp[grep(pattern='scanstart.RTTime:', x=tmp)];   # find the line with scanstart.RTTime
+        if (length(scanstart.RTTime) != 1) { stop("didn't find the scanstart.RTTime field!"); }
+        # extract the number part (scanner onset) from the string
+        scanstart.RTTime <- as.numeric(strsplit(scanstart.RTTime, ": ")[[1]][2]);  
+        if ((scanstart.RTTime > 100) != TRUE) { stop("very short scanstart.RTTime"); }
+        
+        in.tbl <- cbind(edat.tbl, scanstart.RTTime);    # add the scanstart.RTTime column to the table made by edat parser
+        
+        # convert columns read in as strings to numbers so can do later plotting and calculations
+        in.tbl$Flicker.OnsetTime <- as.numeric(in.tbl$Flicker.OnsetTime);
+      
+        if (convert.txt.to.csv == TRUE) {    # write out as a csv for future use. This will overwrite existing files with this name.
+          write.csv(in.tbl, paste0(fname, ".csv"), row.names=FALSE); 
+        }
+      }
+    } else {   # read.erecovery == FALSE, so  want to read a .csv file
+      if (file.exists(paste0(fname, ".csv"))) { in.tbl <- read.csv(paste0(fname, ".csv")); } 
+    }
+    
+    # store the run's in.tbl (if it exists) into the list spot for this session & run
+    if (exists("in.tbl")) { all.ins[[paste0(sess.ids[ssid], rid)]] <- in.tbl; }
+  }
+}
+
+
+
+
+# the Stroop accuracies, which are separate, and just one per run
+all.accs <- list(Bas=NA, Pro=NA, Rea=NA);
+for (ssid in 1:length(session.ids)) {   # ssid <- 3;
+  fname <- paste0(in.path, sub.id, "/", sub.id, "_", session.ids[ssid], "_Stroop", sess.ids[ssid], "_ACC.csv");
+  if (file.exists(fname)) {
+    in.tbl <- read.csv(fname, stringsAsFactors=FALSE);
+    all.accs[[sess.ids[ssid]]] <- in.tbl$ACC.Final;   # column with the consensus accuracies (from the two raters); 1 == correct
+  } 
+}
+
+
+# the Stroop RTs, which are separate, and just one per run
+all.RTs <- list(Bas=NA, Pro=NA, Rea=NA);
+for (ssid in 1:length(session.ids)) {   # ssid <- 1;
+  fname <- paste0(in.path, sub.id, "/", sub.id, "_", session.ids[ssid], "_Stroop", sess.ids[ssid], "_extractedRTs.csv");
+  if (file.exists(fname)) {
+    in.tbl <- read.csv(fname, stringsAsFactors=FALSE);
+    all.RTs[[sess.ids[ssid]]] <- in.tbl;
+  } 
+}
+
+
+@
+
+\noindent \textbf{\Sexpr{sub.id}\textunderscore Stroop\textunderscore singleNEUROIMAGING.rnw} \par
+\noindent compiled \today\  \par
+\noindent This file summarizes \Sexpr{sub.id}'s behavioral performance on the DMCC Stroop task, NEUROIMAGING version. \par
+\vspace{0.1 cm} 
+
+\subsection*{Quality Control: expected stimuli and responses?}
+\noindent The first block of code reads in the eprime output files (e-recovery or .csv), and then checks whether the expected number and types of trials was present in each run and block. Unless a run was known to end early, any error messages printed below should be investigated. \par
+<<code1, echo=FALSE>>=
+
+# check if the number of trials of each type in each block is correct. blocks are in the new eprime output:
+# $baseline and reactive BlockList: 2, 4, 6 for run 1 and 10, 12, 14 for run 2.
+
+lwpc.ids <- c("MI", "MC", "PC50");
+all.colors <- c("red", "purple", "yellow", "255,105,180", "white", "green", "black", "blue");  # words that should be in the Color column
+pc50.colors <- c("255,105,180", "green", "black", "yellow");  # words that should be in the Color column for PC50 trials
+MIMC.colors <- c("red", "purple", "white", "blue");    # for baseline and proactive, not PC50 trials
+MI.colors <- c("purple", "white");   # for reactive 
+MC.colors <- c("red", "blue");       # for reactive
+all.stims <- c("RED", "PURPLE", "YELLOW", "PINK", "WHITE", "GREEN", "BLACK", "BLUE");  # words that should be in the Stim column
+pc50.stims <- c("PINK", "GREEN", "BLACK", "YELLOW");  # words that should be in the Stim column for PC50 trials
+MIMC.stims <- c("RED", "PURPLE", "WHITE", "BLUE");   # for baseline and proactive, not PC50 trials
+MI.stims <- c("PURPLE", "WHITE");   # for reactive 
+MC.stims <- c("RED", "BLUE");   # for reactive 
+
+found.error <- FALSE;
+for (ssid in 1:length(session.ids)) {   
+  for (rid in 1:length(run.ids)) {  # rid <- 1; ssid <- 1;
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {   
+      in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # just to simplify the code
+      
+      # first, check how many trials of each type are in each run
+      if (session.ids[ssid] == "baseline") {
+        need.Con <- c(0, 54, 18);  # how many MI.Con, MC.Con, PC50.Con trials are needed in each run (same order as lwpc.ids)
+        need.InCon <- c(0, 18, 18);  # how many MI.InCon, MC.InCon, PC50.InCon trials are needed in each block (same order as lwpc.ids)
+      } 
+      if (session.ids[ssid] == "proactive") {
+        need.Con <- c(18, 0, 18);  # how many MI.Con, MC.Con, PC50.Con trials are needed in each block (same order as lwpc.ids)
+        need.InCon <- c(54, 0, 18);  # how many MI.InCon, MC.InCon, PC50.InCon trials are needed in each block (same order as lwpc.ids)
+      } 
+      if (session.ids[ssid] == "reactive") {
+        need.Con <- c(12, 48, 12);  # how many MI.Con, MC.Con, PC50.Con trials are needed in each block (same order as lwpc.ids)
+        need.InCon <- c(36, 0, 12);  # how many MI.InCon, MC.InCon, PC50.InCon trials are needed in each block (same order as lwpc.ids)
+      } 
+      for (i in 1:length(lwpc.ids)) {    # bid <- 1; i <- 1;
+        num <- length(which(in.tbl$LWPC == lwpc.ids[i] & in.tbl$TrialType == "Con"));
+        if (need.Con[i] != num) { 
+          txt <- paste0("... ", lwpc.ids[i], ".Con, count mismatch: expected ", need.Con[i], ", found ", num)
+          print(txt, quote=FALSE);       found.error <- TRUE;
+        }
+        
+        num <- length(which(in.tbl$LWPC == lwpc.ids[i] & in.tbl$TrialType == "InCon"));
+        if (need.InCon[i] != num) { 
+          txt <- paste0("... ", lwpc.ids[i], ".InCon, count mismatch: expected ", need.InCon[i], ", found ", num)
+          print(txt, quote=FALSE);          found.error <- TRUE;
+        }
+      }
+      
+      
+      # check if the expected colors and stims are present
+      if (length(intersect(unique(in.tbl$Color), all.colors)) != length(all.colors)) { print("... missing a Color (all trials)?"); found.error <- TRUE; }
+      if (length(union(unique(in.tbl$Color)[which(!is.na(unique(in.tbl$Color)))], all.colors)) != length(all.colors)) { 
+        print("... too many or wrong Colors? (all trials)"); found.error <- TRUE; }
+      if (length(intersect(unique(in.tbl$Stim), all.stims)) != length(all.stims)) { print("... missing a Stim? (all trials)"); found.error <- TRUE; }
+      if (length(union(unique(in.tbl$Stim)[which(!is.na(unique(in.tbl$Stim)))], all.stims)) != length(all.stims)) { 
+        print("... too many or wrong Stims? (all trials)");  found.error <- TRUE; }
+      
+      # check if the expected Colors (ink color) and Stims (presented word) are present: just the PC50 trials
+      inds <- which(in.tbl$LWPC == "PC50");
+      if (length(intersect(unique(in.tbl$Color[inds]), pc50.colors)) != length(pc50.colors)) { print("... missing a Color (PC50 trials)?"); 
+        found.error <- TRUE;}
+      if (length(union(unique(in.tbl$Color[inds]), pc50.colors)) != length(pc50.colors)) { print("... too many or wrong Colors? (PC50 trials)"); 
+        found.error <- TRUE;}
+      if (length(intersect(unique(in.tbl$Stim[inds]), pc50.stims)) != length(pc50.stims)) { print("... missing a Stim? (PC50 trials)"); 
+        found.error <- TRUE;}  
+      if (length(union(unique(in.tbl$Stim[inds]), pc50.stims)) != length(pc50.stims)) { print("... too many or wrong Stims? (PC50 trials)"); 
+        found.error <- TRUE;}
+      
+      # check if the expected colors and stims are present: NOT the PC50 trials. the pattern is different in reactive than baseline & proactive
+      if (session.ids[ssid] == "reactive") {   
+        inds <- which(in.tbl$LWPC == "MC");
+        if (length(intersect(unique(in.tbl$Color[inds]), MC.colors)) != length(MC.colors)) { print("... missing a Color (MC trials)?"); 
+          found.error <- TRUE;}
+        if (length(union(unique(in.tbl$Color[inds]), MC.colors)) != length(MC.colors)) { print("... too many or wrong Colors? (MC trials)"); 
+          found.error <- TRUE;}
+        if (length(intersect(unique(in.tbl$Stim[inds]), MC.stims)) != length(MC.stims)) { print("... missing a Stim? (MC trials)"); 
+          found.error <- TRUE;}  
+        if (length(union(unique(in.tbl$Stim[inds]), MC.stims)) != length(MC.stims)) { print("... too many or wrong Stims? (MC trials)"); 
+          found.error <- TRUE;}
+        
+        inds <- which(in.tbl$LWPC == "MI");
+        if (length(intersect(unique(in.tbl$Color[inds]), MI.colors)) != length(MI.colors)) { print("... missing a Color (MI trials)?"); 
+          found.error <- TRUE;}
+        if (length(union(unique(in.tbl$Color[inds]), MI.colors)) != length(MI.colors)) { print("... too many or wrong Colors? (MI trials)"); 
+          found.error <- TRUE;}
+        if (length(intersect(unique(in.tbl$Stim[inds]), MIMC.stims)) != length(MIMC.stims)) { print("... missing a Stim? (MI trials)"); 
+          found.error <- TRUE;}  
+        if (length(union(unique(in.tbl$Stim[inds]), MIMC.stims)) != length(MIMC.stims)) { print("... too many or wrong Stims? (MI trials)"); 
+          found.error <- TRUE;}          
+      } else { 
+        inds <- which(in.tbl$LWPC != "PC50");  # all NOT PC50 trials will be  MC (for baseline) or MI (for proactive); test colors tgether
+        if (length(intersect(unique(in.tbl$Color[inds]), MIMC.colors)) != length(MIMC.colors)) { print("... missing a Color (MIMC trials)?"); 
+          found.error <- TRUE;}
+        if (length(union(unique(in.tbl$Color[inds]), MIMC.colors)) != length(MIMC.colors)) { print("... too many or wrong Colors? (MIMC trials)"); 
+          found.error <- TRUE;}
+        if (length(intersect(unique(in.tbl$Stim[inds]), MIMC.stims)) != length(MIMC.stims)) { print("... missing a Stim? (MIMC trials)"); 
+          found.error <- TRUE;}  
+        if (length(union(unique(in.tbl$Stim[inds]), MIMC.stims)) != length(MIMC.stims)) { print("... too many or wrong Stims? (MIMC trials)"); 
+          found.error <- TRUE;}
+      }
+      
+      # check if the colors and stims match for Con trials
+      inds <- which(in.tbl$TrialType == "Con");
+      for (i in inds) {   # i <- inds[1];
+        if (in.tbl$Color[i] == "255,105,180") { tmp <- "PINK"; } else { tmp <- toupper(in.tbl$Color[i]); }  # PINK matches 255,105,180
+        if (in.tbl$Stim[i] != tmp) { print("... a Con trial has a mismatching Color and Stim"); found.error <- TRUE; }
+      }
+      # and don't match for InCon trials
+      inds <- which(in.tbl$TrialType == "InCon");
+      for (i in inds) {   # i <- inds[1];
+        if (in.tbl$Color[i] == "255,105,180") { tmp <- "PINK"; } else { tmp <- toupper(in.tbl$Color[i]); }  # PINK matches 255,105,180
+        if (in.tbl$Stim[i] == tmp) { print("... an InCon trial has a matching Color and Stim"); found.error <- TRUE; }
+      }
+    } 
+  }
+}
+print(paste("Found an error in the Stroop trial counting or color matching?", found.error));
+
+@
+
+\noindent These plots show the time and type of every trial. If accuracy is available, black tick marks indicate correct trials. The trial types should be mixed within blocks, and errors should be approximately equal across the runs. There are many more Congruent trials (olive green lines in second row) than InCongruent (red lines) in baseline, but more InCongruent (red) in proactive. There are no blue (MI) trials in baseline, and no green (MC) in proactive. Brown (PC50) lines occur in all runs. The reactive runs are longer than baseline and proactive. \par
+\vspace{0.1 cm} 
+<<code2, echo=FALSE, dev='pdf', fig.height=2, fig.width=7, fig.align='center'>>=
+par(mar=c(2, 1.5, 1.5, 0.75), mgp=c(1.1, 0.2, 0), tcl=-0.3); 
+# mar: c(bottom, left, top, right) gives the number of lines of margin. Default is c(5, 4, 4, 2) + 0.1.
+
+LWPC.ids <- c("MI", "MC", "PC50");    # labels
+LWPC.cols <- c("blue", "green", "darkgoldenrod4");   # colors
+
+tt.ids <- c("Con", "InCon");   # labels
+tt.cols <- c('darkolivegreen', 'red');    # colors 
+
+
+for (ssid in 1:length(session.ids)) {      # ssid <- 1;
+  plot(x=0, y=0, xlim=c(0,700), ylim=c(0.25,(length(run.ids)+0.5)), col='white', xlab="time (seconds)", ylab="", 
+       main="", yaxt='n', xaxs='i', cex.axis=0.7, cex.lab=0.7);
+  mtext(paste0("Stroop ", session.ids[ssid], ", ", sub.id), side=3, cex=0.7, line=0.1);
+  axis(side=2, at=1:length(run.ids), labels=paste0("run", 1:length(run.ids)), cex.axis=0.7, cex.lab=0.7);
+
+  # get accuracy, if present. one accuracy file per session, not run, so need to split out each run.
+  if (length(all.accs[[sess.ids[ssid]]]) > 1) {   
+    accuracy <- all.accs[[sess.ids[ssid]]];   # just to simplify the code
+    have.accuracy <- TRUE;
+  } else { have.accuracy <- FALSE; }   # don't want errors if no accuracy file
+  
+  for (rid in 1:length(run.ids)) {     # rid <- 1;
+    # trial-type ticks
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {   
+      in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # just to simplify the code
+      
+      # set the start value and then subtract from all events onsets to obtain the true onsets. 
+      start.time <- in.tbl$scanstart.RTTime[1]; 
+      if (is.na(start.time) | start.time < 1000) { stop("invalid start.value"); }
+            
+      # show the LWPC
+      for (i in 1:length(LWPC.ids)) {    # i <- 1;
+        inds <- which(in.tbl$LWPC == LWPC.ids[i]);   
+        vals <- (in.tbl$Flicker.OnsetTime[inds] - start.time)/1000;      
+        points(x=vals, y=rep(rid+0.12,length(vals)), pch="|", col=LWPC.cols[i]); 
+      }
+      
+      # show the trial types
+      for (i in 1:length(tt.ids)) {    # i <- 1;
+        inds <- which(in.tbl$TrialType == tt.ids[i]);   
+        vals <- (in.tbl$Flicker.OnsetTime[inds] - start.time)/1000;      
+        points(x=vals, y=rep(rid-0.1,length(vals)), pch="|", col=tt.cols[i]); 
+      }
+      
+      if (have.accuracy == TRUE) {        # show accuracy ticks
+        inds <- which(!is.na(in.tbl$Flicker.OnsetTime));
+        vals <- (in.tbl$Flicker.OnsetTime[inds] - start.time)/1000;      
+        if (rid == 1) {
+          for (i in 1:length(vals)) {   # i <- 1;
+            if (!is.na(accuracy[i]) & accuracy[i] == "1") { points(x=vals[i], y=(rid+0.35), pch="'"); }   # will have NA ACC if missing recording
+          }
+        } else {   # run 2, so just keep the accuracy rows for run 2
+          accuracy <- accuracy[(length(accuracy)-length(inds)+1):length(accuracy)]
+          for (i in 1:length(vals)) {   # i <- 1;
+            if (!is.na(accuracy[i]) & accuracy[i] == "1") { points(x=vals[i], y=(rid+0.35), pch="'"); }
+          }
+        }
+      }
+    }
+  }
+
+  legend("bottomleft", legend=LWPC.ids, lwd=1.8, col=LWPC.cols, bty='n', cex=0.7, horiz=TRUE);
+  legend("bottomright", legend=tt.ids, lwd=1.8, col=tt.cols, bty='n', cex=0.7, horiz=TRUE);
+  box();
+}
+
+@
+
+
+\newpage
+\subsection*{Single-subject statistics for \Sexpr{sub.id}}
+\noindent \textbf{The Stroop effect} is incongruent - congruent (and hopefully positive). For PC50, we hope that the difference will be smaller for Pro than Rea or Bas We also hope for a smaller effect in MI (Pro, Rea) than MC (Bas). \par
+\noindent \textbf{The boxplots} show the range of reaction times detected by the matlab code. Boxes should be present in all sessions, and all approximately the same size. If the boxplots are very flat (more like lines) for a session, the matlab code likely failed, and the recordings should be investigated. Numbers printed below the boxplots are the number of NAs. A few (less than 5) in a run are ok; more should be investigated. \par
+\noindent \textbf{Robust statistics} for RT? \Sexpr{use.robust.stats} (Robust statistics never used for error rate, since typically very few errors.) \par
+\vspace{0.2 cm}
+<<code3, dev='pdf', echo=FALSE, fig.height=2.3, fig.width=7.75, fig.align='center'>>= 
+layout(matrix(1:5, c(1,5)));
+par(mar=c(1.5, 2, 2, 0.75), mgp=c(1.1, 0.2, 0), tcl=-0.3);
+# mar: c(bottom, left, top, right) gives the number of lines of margin. Default is c(5, 4, 4, 2) + 0.1.
+
+trial.types <- c("Con", "InCon");
+lwpc.types <- c("MC", "MI", "PC50");
+stat.lbls <- c(".mean", ".sem");   # sum.tbl column labels   
+
+sum.tbl <- data.frame(array(NA, c(length(session.ids)*length(trial.types)*length(lwpc.types), 6)));
+colnames(sum.tbl) <- c("session", "trial.type", "lwpc.type", "num.trials", paste0("silence", stat.lbls));
+ctr <- 1;  # row counter for sum.tbl
+for (ssid in 1:length(session.ids)) {    # ssid <- 1;
+  if (length(all.RTs[[sess.ids[ssid]]]) > 1 & length(all.accs[[sess.ids[ssid]]]) > 1) {
+    in.tbl <- all.RTs[[sess.ids[ssid]]];  
+    accuracy <- all.accs[[sess.ids[ssid]]];  
+    if (nrow(in.tbl) != length(accuracy)) { stop("row mismatch between _ACC and _extractedRTs!"); }
+    
+    in.tbl <- data.frame(in.tbl, accuracy);
+    for (ttid in 1:length(trial.types)) {    
+      for (lid in 1:length(lwpc.types)) {   # ttid <- 1; lid <- 1;
+        inds <- which(in.tbl$TrialType == trial.types[ttid] & in.tbl$LWPC == lwpc.types[lid] & in.tbl$accuracy == "1"); 
+        if (length(inds) > 0) {   # not all trial type - LWPC type combinations present in each session
+          sum.tbl$session[ctr] <- session.ids[ssid];
+          sum.tbl$trial.type[ctr] <- trial.types[ttid];
+          sum.tbl$lwpc.type[ctr] <- lwpc.types[lid];
+          sum.tbl$num.trials[ctr] <- length(inds);   # total number of trials
+          
+          # RT for each trial is the average of silence1 (firstRTestimate_energy2) and silence2 (secondRTestimate_energy2)
+          vals <- in.tbl$firstRTestimate_energy2[inds] * 1000;  # convert to msec  # silence1
+          vals <- cbind(vals, in.tbl$secondRTestimate_energy2[inds] * 1000);    # silence2
+          vals <- apply(vals, 1, mean)   # always just regular average for these two numbers
+          vals <- vals[which(!is.na(vals))];          
+          
+          if (use.robust.stats == FALSE) {   # calculate regular mean and SEM
+            sum.tbl$silence.mean[ctr] <- mean(vals);
+            sum.tbl$silence.sem[ctr] <- sd(vals)/sqrt(length(vals));
+          } else {   # calculate robust (trimmed) mean and SEM
+            sum.tbl$silence.mean[ctr] <- mean(vals, trim=do.trim); 
+            sum.tbl$silence.sem[ctr] <- trimse(vals, tr=do.trim); 
+          }
+
+          ctr <- ctr + 1;
+        }
+      }
+    }
+  }
+}
+sum.tbl <- sum.tbl[1:(ctr-1),];  # take off empty rows
+sum.tbl.RT <- sum.tbl;  # save with different name so can print later
+
+
+do.bar <- function(at.left, at.top, at.sem, at.col, is.con) {
+  if (is.con == TRUE) {
+    rect(xleft=at.left-off, xright=at.left, ybottom=y.min, ytop=at.top, border=NA, col=at.col);
+  } else {
+    rect(xleft=at.left-off, xright=at.left, ybottom=y.min, ytop=at.top, density=den, angle=30, col=at.col);
+  }
+  if (at.top == y.min) { lines(x=c(at.left-off, at.left), y=rep(y.min, 2), col=at.col, lwd=2); }   # so a little line if 0
+  if (at.sem > 0) {
+    mid <- ((at.left-off)+at.left)/2;
+    arrows(x0=mid, x1=mid, y0=at.top, y1=at.top+at.sem, angle=90, length=0.02)
+    arrows(x0=mid, x1=mid, y0=at.top, y1=at.top-at.sem, angle=90, length=0.02)
+  }
+}
+
+mc.col <- "lightblue";
+mi.col <- "lightgreen";
+pc.col <- "lightsalmon";
+l.clr <- c('black', 'blue');
+lwpc.ids <- c("MC", "MI", "PC50");
+
+
+##############################################################################
+# boxplots of RT distribution
+
+plot(x=0, y=0, xlim=c(0.7,3.3), ylim=c(0,3500), col='white', ylab="RT (all trials)", xlab="", xaxt='n', main="");
+mtext(side=3, text="RT, all trials", line=0.25, cex=0.6);
+axis(side=1, at=1:3, labels=sess.ids);
+grid();
+
+for (ssid in 1:length(session.ids)) {    # ssid <- 1;
+  if (ssid == 1) {    # baseline
+    ats <- c(-0.28, 0.09, -0.09, 0.28);   lwpc.types <- c("MC", "PC50");
+  }
+  if (ssid == 2) {      # proactive
+    ats <- c(-0.28, 0.09, -0.09, 0.28);   lwpc.types <- c("MI", "PC50");
+  }
+  if (ssid == 3) {    # reactive
+    ats <- c(-0.3, -0.15, 0, 0.15, 0.3);  lwpc.types <- c("MC", "MI", "PC50");
+  }
+  
+  if (length(all.RTs[[sess.ids[ssid]]]) > 1) {
+    in.tbl <- all.RTs[[sess.ids[ssid]]];  
+    
+    ctr <- 1;
+    for (ttid in 1:length(trial.types)) {      # Con InCon
+      for (lid in 1:length(lwpc.types)) {   # ttid <- 1; lid <- 1;
+        inds <- which(in.tbl$TrialType == trial.types[ttid] & in.tbl$LWPC == lwpc.types[lid]); 
+        if (length(inds) > 0) {  
+          # RT for each trial is the average of silence1 (firstRTestimate_energy2) and silence2 (secondRTestimate_energy2)
+          vals <- in.tbl$firstRTestimate_energy2[inds] * 1000;  # convert to msec  # silence1
+          vals <- cbind(vals, in.tbl$secondRTestimate_energy2[inds] * 1000);    # silence2
+          vals <- apply(vals, 1, mean);   # only two numbers, so just regular aveage
+          
+          if (lwpc.types[lid] == "MC") { clr <- mc.col; }
+          if (lwpc.types[lid] == "MI") { clr <- mi.col; }
+          if (lwpc.types[lid] == "PC50") { clr <- pc.col; }
+          boxplot(vals, at=(ssid+ats[ctr]), add=TRUE, col=clr, bty='n', yaxt='n', xaxt='n', boxwex=0.3, border=l.clr[ttid]);
+          if (length(which(is.na(vals))) > 0) { text(x=(ssid+ats[ctr]), y=0, labels=length(which(is.na(vals))), cex=0.8, col=l.clr[ttid]); }
+          ctr <- ctr + 1;
+        }
+      }
+    }
+  }
+}
+
+legend(x=0.5, y=3700, fill=c(mc.col, mi.col, pc.col), legend=c("MC", "MI", "PC50"), bty='n', horiz=TRUE, cex=0.7); 
+legend(x=0.78, y=3500, lty=c('solid','solid'), col=l.clr, legend=c("Con", "InCon"), bty='n', horiz=TRUE, cex=0.7); 
+box();
+
+##############################################################################
+# make the barplot for RT
+
+if (use.robust.stats == TRUE) { yttl <- "mean RT (robust; acc.e trials only)"; } else { yttl <- "mean RT (accurate trials only)"; }
+den <- 25;
+off <- 0.1;
+y.min <- 400;
+
+plot(x=0, y=0, xlim=c(0.7,3.3), ylim=c(y.min,2100), col='white', ylab=yttl, xlab="", xaxt='n', main="");
+mtext(side=3, text=paste0(sub.id, ", RT."), line=0.25, cex=0.6);
+axis(side=1, at=1:3, labels=sess.ids);
+grid();
+for (ssid in 1:length(session.ids)) {   # ssid <- 1;
+  if (session.ids[ssid] == "reactive") { ats <- c(-0.15, -0.05, 0.145, 0.05, 0.245); } else { ats <- c(-0.1, 0.1, 0, 0.2); }
+  inds <- which(sum.tbl$session == session.ids[ssid]);
+  if (length(inds) > 0) {
+    ctr <- 1;
+    for (i in inds) {   # i <- inds[1];
+      if (sum.tbl$lwpc.type[i] == "MC") { clr <- mc.col; }
+      if (sum.tbl$lwpc.type[i] == "MI") { clr <- mi.col; }
+      if (sum.tbl$lwpc.type[i] == "PC50") { clr <- pc.col; }
+      if (sum.tbl$trial.type[i] == "Con") { con <- TRUE; } else { con <- FALSE; }
+      do.bar(at.left=(ssid+ats[ctr]), at.top=sum.tbl$silence.mean[i], at.sem=sum.tbl$silence.sem[i], at.col=clr, is.con=con);
+      ctr <- ctr + 1;
+    }
+  }
+}
+legend(x=0.5, y=2200, fill=c(mc.col, mi.col, pc.col), legend=c("MC", "MI", "PC50"), bty='n', horiz=TRUE, cex=0.7); 
+legend(x=1, y=2100, density=c(NA, den), angle=c(NA, 30), legend=c("Con", "InCon"), bty='n', horiz=TRUE, cex=0.8); 
+box();
+
+
+##############################################################################
+# bar plot for RT Stroop effect
+
+clrs <- c("darkblue", "darkgreen", "darksalmon");  # same order as lwpc.types
+yttl <- "Stroop effect, RT";
+lefts <- c(-0.15, 0);
+off <- 0.15;
+y.lim <- c(-200,800);
+stroop.tbl <- data.frame(array(NA, c(6, 3)))
+colnames(stroop.tbl) <- c("session", "lwpc.type", "silence.diff");
+rctr <- 1;
+
+m.lbl <- "";    
+plot(x=0, y=0, xlim=c(0.7,3.3), ylim=y.lim, col='white', ylab=yttl, xlab="", xaxt='n', main="");
+mtext(side=3, text=paste0(sub.id, ", Stroop effect"), line=0.25, cex=0.6);
+axis(side=1, at=1:3, labels=sess.ids);
+grid();
+lines(x=c(-5,5), y=c(0,0))
+for (ssid in 1:length(session.ids)) {    # ssid <- 1;
+  ctr <- 1;
+  for (lid in 1:length(lwpc.ids)) {    # lid <- 1;
+    ind.con <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$lwpc.type == lwpc.ids[lid] & sum.tbl$trial.type == "Con");
+    ind.incon <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$lwpc.type == lwpc.ids[lid] & sum.tbl$trial.type == "InCon");
+    if (length(ind.con) == 1 & length(ind.incon) == 1) {  # this combination is present
+      dif <- sum.tbl[ind.incon,"silence.mean"] - sum.tbl[ind.con,"silence.mean"];
+      if (!is.na(dif)) {
+        if (dif >= 0) {
+          rect(xleft=ssid+lefts[ctr], xright=ssid+lefts[ctr]+off, ybottom=0, ytop=dif, col=clrs[lid]);
+        } else {
+          rect(xleft=ssid+lefts[ctr], xright=ssid+lefts[ctr]+off, ybottom=dif, ytop=0, col=clrs[lid]);
+        }
+      }
+      ctr <- ctr + 1;
+      
+      stroop.tbl$session[rctr] <- session.ids[ssid];
+      stroop.tbl$lwpc.type[rctr] <- lwpc.ids[lid];
+      stroop.tbl$silence.diff[rctr] <- dif;
+      rctr <- rctr + 1;
+    }
+  }
+}
+legend(x=0.5, y=850, fill=clrs, legend=lwpc.ids, bty='n', horiz=TRUE, cex=0.7);
+box();
+
+
+
+rm(sum.tbl);  # clear, since remake sum.tbl for Stroop Accuracy
+
+##############################################################################
+##############################################################################
+# calculate response accuracy
+
+sum.tbl <- data.frame(array(NA, c(length(session.ids)*length(trial.types)*length(lwpc.types), 9)));
+colnames(sum.tbl) <- c("session", "trial.type", "lwpc.type", "total.num.trials", "num.haveACC", paste0("accuracy", stat.lbls), 
+                       paste0("ERR", stat.lbls));
+ctr <- 1;  # row counter for  sum.tbl
+for (ssid in 1:length(session.ids)) {    # ssid <- 3;
+  if (length(all.RTs[[sess.ids[ssid]]]) > 1 & length(all.accs[[sess.ids[ssid]]]) > 1) {
+    rt.tbl <- all.RTs[[sess.ids[ssid]]];  
+    accuracy <- all.accs[[sess.ids[ssid]]];  
+    if(nrow(rt.tbl) != length(accuracy)) { stop("row mismatch between _ACC and _extractedRTs!"); }
+    
+    for (ttid in 1:length(trial.types)) {    
+      for (lid in 1:length(lwpc.types)) {   # ttid <- 1; lid <- 1;
+        inds <- which(rt.tbl$TrialType == trial.types[ttid] & rt.tbl$LWPC == lwpc.types[lid]);  
+        if (length(inds) > 0) {   # not all trial type - LWPC type combinations present in each session
+          sum.tbl$session[ctr] <- session.ids[ssid];
+          sum.tbl$trial.type[ctr] <- trial.types[ttid];
+          sum.tbl$lwpc.type[ctr] <- lwpc.types[lid];
+          
+          vals <- accuracy[inds];
+          # only want to have "0" trials as wrong and "1" as right: "no-response" and "unintelligible" are scratch: don't count at all
+          vals.numeric <- rep(NA, length(vals));  # start an empty vector
+          vals.numeric[which(vals == "1")] <- 1;   # put 1s in for the "1"s : now can do math!  1 == correct 0 == not correct (in some way)
+          vals.numeric[which(vals == "0")] <- 0; 
+          vals.numeric <- vals.numeric[which(!is.na(vals.numeric))];    # get rid of the not-1 and not-0 entries
+          sum.tbl$total.num.trials[ctr] <- length(vals);   # total number of trials
+          sum.tbl$num.haveACC[ctr] <- length(vals.numeric);   # number of not-scratch trials (how many going into the calculations)
+          sum.tbl$accuracy.mean[ctr] <- mean(vals.numeric);
+          sum.tbl$accuracy.sem[ctr] <- sd(vals.numeric)/sqrt(length(vals.numeric));
+          vals.numeric <- 1 - vals.numeric;  # convert accuracy to error rate
+          sum.tbl$ERR.mean[ctr] <- mean(vals.numeric);
+          sum.tbl$ERR.sem[ctr] <- sd(vals.numeric)/sqrt(length(vals.numeric));
+          
+          
+          ctr <- ctr + 1;
+        }
+      }
+    }
+  }
+}
+sum.tbl <- sum.tbl[1:(ctr-1),];  # take off empty rows
+
+
+yttl <- "mean error rate";   
+mc.col <- "lightblue";
+mi.col <- "lightgreen";
+pc.col <- "lightsalmon";
+off <- 0.1;
+y.min <- 0;
+
+# make the barplot
+plot(x=0, y=0, xlim=c(0.7,3.3), ylim=c(y.min,1), col='white', ylab=yttl, xlab="", xaxt='n', main="");
+mtext(side=3, text=paste0(sub.id, ", error rate"), line=0.25, cex=0.6);
+axis(side=1, at=1:3, labels=sess.ids);
+grid();
+lines(x=c(-1,4), y=c(0,0), col='darkgrey')
+for (ssid in 1:length(session.ids)) {   # ssid <- 1;
+  # five bars needed for reactive, just four for baseline & proactive, so set offsets for bars accordingly
+  if (session.ids[ssid] == "reactive") { ats <- c(-0.15, -0.05, 0.145, 0.05, 0.245); } else { ats <- c(-0.1, 0.1, 0, 0.2); }
+  inds <- which(sum.tbl$session == session.ids[ssid]);
+  if (length(inds) > 0) {
+    ctr <- 1;
+    for (i in inds) {
+      if (sum.tbl$lwpc.type[i] == "MC") { clr <- mc.col; }
+      if (sum.tbl$lwpc.type[i] == "MI") { clr <- mi.col; }
+      if (sum.tbl$lwpc.type[i] == "PC50") { clr <- pc.col; }
+      if (sum.tbl$trial.type[i] == "Con") { con <- TRUE; } else { con <- FALSE; }
+      
+      do.bar(at.left=(ssid+ats[ctr]), at.top=sum.tbl$ERR.mean[i], at.sem=sum.tbl$ERR.sem[i], at.col=clr, is.con=con);
+      ctr <- ctr + 1;
+    }
+  } else { print(paste("no Stroop ACC:", session.ids[ssid])); }
+}
+legend(x=0.5, y=1.05, fill=c(mc.col, mi.col, pc.col), legend=c("MC", "MI", "PC50"), bty='n', horiz=TRUE, cex=0.7); 
+legend(x=1, y=1, density=c(NA, den), angle=c(NA, 30), legend=c("Con", "InCon"), bty='n', horiz=TRUE, cex=0.8); 
+box();
+
+
+### Stroop effect for performance: calculated off error rate, not accuracy.
+trial.types <- c("Con", "InCon");
+lwpc.ids <- c("MC", "MI", "PC50");
+clrs <- c("darkblue", "darkgreen", "darksalmon");  # same order as lwpc.types
+yttl <- "Stroop effect, error rate";
+lefts <- c(-0.15, 0);
+off <- 0.15;
+y.lim <- c(-0.2,0.6);
+stroop.tbl.acc <- data.frame(array(NA, c(6, 3)))
+colnames(stroop.tbl.acc) <- c("session", "lwpc.type", "ERR.diff");
+
+plot(x=0, y=0, xlim=c(0.7,3.3), ylim=y.lim, col='white', ylab=yttl, xlab="", xaxt='n', main="");
+mtext(side=3, text="Stroop effect, error rate", line=0.25, cex=0.6);
+axis(side=1, at=1:3, labels=sess.ids);
+grid();
+lines(x=c(-5,5), y=c(0,0), col='darkgrey')
+
+rctr <- 1;
+for (ssid in 1:length(session.ids)) { # ssid <- 1;
+  ctr <- 1;
+  for (lid in 1:length(lwpc.ids)) {    # ssid <- 1; lid <- 1;
+    ind.con <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$lwpc.type == lwpc.ids[lid] & sum.tbl$trial.type == "Con");
+    ind.incon <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$lwpc.type == lwpc.ids[lid] & sum.tbl$trial.type == "InCon");
+    if (length(ind.con) == 1 & length(ind.incon) == 1) {  # this combination is present
+      dif <- sum.tbl$ERR.mean[ind.incon] - sum.tbl$ERR.mean[ind.con];
+      if (!is.na(dif)) {
+        if (dif >= 0) {
+          rect(xleft=ssid+lefts[ctr], xright=ssid+lefts[ctr]+off, ybottom=0, ytop=dif, col=clrs[lid]);
+        } else {
+          rect(xleft=ssid+lefts[ctr], xright=ssid+lefts[ctr]+off, ybottom=dif, ytop=0, col=clrs[lid]);
+        }
+      }
+      ctr <- ctr + 1;
+      
+      # save into stroop.tbl to show the bar values
+      stroop.tbl.acc$session[rctr] <- session.ids[ssid];
+      stroop.tbl.acc$lwpc.type[rctr] <- lwpc.ids[lid];
+      stroop.tbl.acc$ERR.diff[rctr] <- dif;
+      rctr <- rctr + 1;
+    }
+  }
+}
+legend(x=0.5, y=0.64, fill=clrs, legend=lwpc.ids, bty='n', horiz=TRUE, cex=0.7);
+box();
+
+
+@
+
+<<code4, echo=FALSE, size='small'>>= 
+options(width=100);  # allow more columns to be printed
+
+if (use.robust.stats == TRUE) { print("mean (robust) RT estimates", quote=FALSE); }
+if (use.robust.stats == FALSE) { print("mean (regular) RT estimates", quote=FALSE); }
+print(sum.tbl.RT); 
+
+print("", quote=FALSE)
+print("mean performance estimates", quote=FALSE);
+print(sum.tbl[,c("session", "trial.type", "lwpc.type", "total.num.trials", "num.haveACC", "ERR.mean", "ERR.sem")]); 
+
+@
+
+
+\newpage
+\subsection*{Stroop derived measures for \Sexpr{sub.id}}
+\noindent Calculated from the mean RT and error rates in the above tables. \par
+\vspace{0.1 cm}
+<<code5, echo=FALSE>>=
+
+print("Stroop effect (InCon - Con)", quote=FALSE);
+stroop.tbl <- cbind(stroop.tbl, stroop.tbl.acc$ERR.diff);
+colnames(stroop.tbl) <- c("session", "lwpc.type", "RT.diff", "ERR.diff");
+print(stroop.tbl); 
+print("", quote=FALSE);
+
+
+# descriptions from http://pages.wustl.edu/dualmechanisms/stroop#stroopbehmeasures
+# Congruency cost
+# Currently, we suggest computing this on PC50 congruent items, subtracting out PC50 congruent items from the baseline (LWMC) to
+# produce the cost measure. The DMC framework predicts a higher congruency cost in the proactive condition than in the reactive condition.
+
+# PC50 Congruent trials only, Pro-Bas and Rea-Bas
+# ERR - from sum.tbl
+ind.bas <- which(sum.tbl$session == "baseline" & sum.tbl$lwpc.type == "PC50" & sum.tbl$trial.type == "Con");
+ind.pro <- which(sum.tbl$session == "proactive" & sum.tbl$lwpc.type == "PC50" & sum.tbl$trial.type == "Con");
+ind.rea <- which(sum.tbl$session == "reactive" & sum.tbl$lwpc.type == "PC50" & sum.tbl$trial.type == "Con");
+if (length(ind.bas) == 1 & length(ind.pro) == 1) {
+  print(paste0("Congruency cost, Pro-Bas ERR: ", round(sum.tbl$ERR.mean[ind.pro] - sum.tbl$ERR.mean[ind.bas],3))); 
+}
+if (length(ind.bas) == 1 & length(ind.rea) == 1) {
+  print(paste0("Congruency cost, Rea-Bas ERR: ", round(sum.tbl$ERR.mean[ind.rea] - sum.tbl$ERR.mean[ind.bas],3))); 
+}
+
+# RT - from sum.tbl.RT
+ind.bas <- which(sum.tbl.RT$session == "baseline" & sum.tbl.RT$lwpc.type == "PC50" & sum.tbl.RT$trial.type == "Con");
+ind.pro <- which(sum.tbl.RT$session == "proactive" & sum.tbl.RT$lwpc.type == "PC50" & sum.tbl.RT$trial.type == "Con");
+ind.rea <- which(sum.tbl.RT$session == "reactive" & sum.tbl.RT$lwpc.type == "PC50" & sum.tbl.RT$trial.type == "Con");
+if (length(ind.bas) == 1 & length(ind.pro) == 1) {
+  print(paste0("Congruency cost, Pro-Bas RT: ", round(sum.tbl.RT$silence.mean[ind.pro] - sum.tbl.RT$silence.mean[ind.bas],3))); 
+}
+if (length(ind.bas) == 1 & length(ind.rea) == 1) {
+  print(paste0("Congruency cost, Rea-Bas RT: ", round(sum.tbl.RT$silence.mean[ind.rea] - sum.tbl.RT$silence.mean[ind.bas],3))); 
+}
+
+print("", quote=FALSE);
+
+
+# Transfer cost
+# Currently, we suggest computing this as the difference between PC50 incongruent items and MI incongruent items. Additionally, the transfer 
+# pattern in the baseline condition can be further subtracted out (PC50 incongruent - MC incongruent) to further normalize this measure. The
+# DMC framework predicts a higher transfer cost in the reactive condition than in the proactive condition.
+
+# PC50 InCon - MI InCon in Pro and Rea; PC50 InCon - MC InCon in Bas.
+# ERR - from sum.tbl
+ind.pc <- which(sum.tbl$session == "baseline" & sum.tbl$lwpc.type == "PC50" & sum.tbl$trial.type == "InCon");
+ind.m <- which(sum.tbl$session == "baseline" & sum.tbl$lwpc.type == "MC" & sum.tbl$trial.type == "InCon");
+if (length(ind.pc) == 1 & length(ind.m) == 1) {
+  print(paste0("Transfer cost, Bas ERR: ", round(sum.tbl$ERR.mean[ind.pc] - sum.tbl$ERR.mean[ind.m],3))); 
+}
+for (ssid in 2:3) {   # pro & rea only   # ssid <- 2;
+  ind.pc <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$lwpc.type == "PC50" & sum.tbl$trial.type == "InCon");
+  ind.m <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$lwpc.type == "MI" & sum.tbl$trial.type == "InCon");
+  if (length(ind.pc) == 1 & length(ind.m) == 1) {
+    print(paste0("Transfer cost, ", sess.ids[ssid], " ERR: ", round(sum.tbl$ERR.mean[ind.pc] - sum.tbl$ERR.mean[ind.m],3))); 
+  }
+}
+
+# RT - from sum.tbl.RT
+ind.pc <- which(sum.tbl.RT$session == "baseline" & sum.tbl.RT$lwpc.type == "PC50" & sum.tbl.RT$trial.type == "InCon");
+ind.m <- which(sum.tbl.RT$session == "baseline" & sum.tbl.RT$lwpc.type == "MC" & sum.tbl.RT$trial.type == "InCon");
+if (length(ind.pc) == 1 & length(ind.m) == 1) {
+  print(paste0("Transfer cost, Bas RT: ", round(sum.tbl.RT$silence.mean[ind.pc] - sum.tbl.RT$silence.mean[ind.m],3))); 
+}
+for (ssid in 2:3) {   # pro & rea only   # ssid <- 2;
+  ind.pc <- which(sum.tbl.RT$session == session.ids[ssid] & sum.tbl.RT$lwpc.type == "PC50" & sum.tbl.RT$trial.type == "InCon");
+  ind.m <- which(sum.tbl.RT$session == session.ids[ssid] & sum.tbl.RT$lwpc.type == "MI" & sum.tbl.RT$trial.type == "InCon");
+  if (length(ind.pc) == 1 & length(ind.m) == 1) {
+    print(paste0("Transfer cost, ", sess.ids[ssid], " RT: ", round(sum.tbl.RT$silence.mean[ind.pc] - sum.tbl.RT$silence.mean[ind.m],3))); 
+  }
+}
+
+@
+
+
+\end{document}

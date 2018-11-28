@@ -1,0 +1,570 @@
+\documentclass{article}
+  \addtolength{\oddsidemargin}{-1.25in}
+  \addtolength{\evensidemargin}{-1.25in}
+  \addtolength{\textwidth}{2.5in}
+  \addtolength{\topmargin}{-.875in}
+  \addtolength{\textheight}{1.75in}
+\begin{document}
+
+<<startup, echo=FALSE, message=FALSE, warning=FALSE>>=
+# code written by Joset A. Etzel (jetzel@wustl.edu) https://pages.wustl.edu/dualmechanisms   http://ccpweb.wustl.edu/
+# https://opensource.org/licenses/BSD-3-Clause 
+# Copyright 2018, Cognitive Control & Psychopathology Lab, Psychological & Brain Sciences, Washington University in St. Louis (USA)
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the 
+#    documentation and/or other materials provided with the distribution.
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this
+#    software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+# TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+rm(list=ls());    # clear R's workspace to start fresh; 
+
+# **** change these lines
+read.erecovery <- TRUE;  # if TRUE, read from e-recovery files; if FALSE, read from .csv files. The .csv files can be those
+# created by the code in this knitr file, or generated elsewhere, so long as the needed column names are unchanged.
+convert.txt.to.csv <- FALSE;   # if read.erecovery and convert.txt.to.csv TRUE, the eprime erecovery files are written as .csv format in in.path
+# if read.erecovery is FALSE, convert.txt.to.csv has no effect.
+
+in.path <- "d:/gitFiles_ccplabwustl/dualmechanisms/analysesAndReports/taskBehavioralSummaries/NEUROIMAGING/exampleDataset/input/";    
+# top-level path to the eprime e-recovery .txt (if read.erecovery) or .csv files (otherwise)
+# the input (e-recovery) files need to be in subdirectories of in.path, with files for each person in a separate subdirectory
+# named with the subject ID (matching the sub.id variable); see example dataset.
+
+key.path <- "d:/gitFiles_ccplabwustl/dualmechanisms/analysesAndReports/taskBehavioralSummaries/NEUROIMAGING/analysisCode/"; # directory with SternbergWordKey.txt
+
+sub.id <- "165032";     # the subject ID for this summary knitr, as named in the input files and subdirectory
+use.robust.stats <- TRUE;   # whether to use robust statistics or not for the RT mean and SEM 
+# robust statistics are not used for accuracy/error rate (even when use.robust.stats == TRUE) since most participants have very few errors.
+
+
+# **** should not need to change these lines
+task.id <- "Stern";   # as named in the input files
+session.ids <- c("baseline", "proactive", "reactive");    
+sess.ids <- c("Bas", "Pro", "Rea");      # shorter version of the session.ids; same order as session.ids
+run.ids <- c("run1", "run2");    # run IDs, as named in the input files. 
+stim.ids <- c("AX", "AY", "BX", "BY", "Ang", "Bng");  # stimulus names, as in the eprime output
+
+
+# the edatparser library is needed for converting the eprime e-erecovery text files; not if only using .csv files 
+# download edatparser from https://github.com/ahebrank/edatparser; Copyright (c) 2015 Andy Hebrank
+if (read.erecovery == TRUE) { 
+  if (require(edatparser) == FALSE) { print("did not find the edatparser library; please install"); }  
+}
+
+# the trimse function from the WRS2 library is used for robust SEM
+if (use.robust.stats == TRUE) {
+  if (require(WRS2) == FALSE) { print("did not find the WRS2 library; please install"); } 
+  do.trim <- 0.1;  # how much trimming to do in the mean and SEM
+}
+
+
+# read the eprime files (e-recovery txt OR .csv) for this person, storing them in a list so they only have to be read once.
+all.ins <- vector("list", length(session.ids)*length(run.ids));   # make a blank list
+all.ins <- setNames(all.ins, c(paste0(sess.ids[1], 1:length(run.ids)), paste0(sess.ids[2], 1:length(run.ids)), 
+                               paste0(sess.ids[3], 1:length(run.ids))));    # assign the list slot names
+# if only two runs, this is equivalent: all.ins <- list(Bas1=NA, Bas2=NA, Pro1=NA, Pro2=NA, Rea1=NA, Rea2=NA);
+
+for (ssid in 1:length(session.ids)) {
+  for (rid in 1:length(run.ids)) {     # ssid <- 1; rid <- 1;
+    if (exists("in.tbl")) { rm(in.tbl); }   # clean up memory
+    fname <- paste0(in.path, sub.id, "/", sub.id, "_", session.ids[ssid], "_", task.id, sess.ids[ssid], "_", run.ids[rid]); 
+    if (read.erecovery == TRUE) {    # want to read a eprime text recovery file
+      if (file.exists(paste0(fname, ".txt"))) {     # and the eprime text recovery file exists, so process it
+        edat.tbl <- as.data.frame(edat(paste0(fname, ".txt")));    # read in the erecovery text file and convert to a data.frame.
+        
+        # the scanstart.RTTime: field is NOT included by edatparser in edat.tbl, so we need to read it directly.
+        tmp <- readLines(con <- file(paste0(fname, ".txt"), encoding="UCS-2LE"));  # specify windows encoding to avoid stray characters.
+        close(con);    # clean up the connection to the input file
+        
+        scanstart.RTTime <- tmp[grep(pattern='scanstart.RTTime:', x=tmp)];   # find the line with scanstart.RTTime
+        if (length(scanstart.RTTime) != 1) { stop("didn't find the scanstart.RTTime field!"); }
+        # extract the number part (scanner onset) from the string
+        scanstart.RTTime <- as.numeric(strsplit(scanstart.RTTime, ": ")[[1]][2]);  
+        if ((scanstart.RTTime > 100) != TRUE) { stop("very short scanstart.RTTime"); }
+        
+        in.tbl <- cbind(edat.tbl, scanstart.RTTime);    # add the scanstart.RTTime column to the table made by edat parser
+        
+        # convert columns read in as strings to numbers so can do later plotting and calculations
+        in.tbl$Flicker.OnsetTime <- as.numeric(in.tbl$Flicker.OnsetTime);
+        in.tbl$ListLen <- as.numeric(in.tbl$ListLen);
+        in.tbl$ProbeSlide.ACC <- as.numeric(in.tbl$ProbeSlide.ACC);
+        in.tbl$ProbeSlide.RT <- as.numeric(in.tbl$ProbeSlide.RT);
+        in.tbl$ProbeSlide.RTTime <- as.numeric(in.tbl$ProbeSlide.RTTime);
+        in.tbl$ProbeSlide.RESP <- as.numeric(in.tbl$ProbeSlide.RESP);
+      
+        if (convert.txt.to.csv == TRUE) {    # write out as a csv for future use. This will overwrite existing files with this name.
+          write.csv(in.tbl, paste0(fname, ".csv"), row.names=FALSE); 
+        }
+      } 
+    } else {   # read.erecovery == FALSE, so  want to read a .csv file
+      if (file.exists(paste0(fname, ".csv"))) { in.tbl <- read.csv(paste0(fname, ".csv")); } 
+    }
+    
+    # store the run's in.tbl (if it exists) into the list spot for this session & run
+    if (exists("in.tbl")) { all.ins[[paste0(sess.ids[ssid], rid)]] <- in.tbl; }
+  }
+}
+
+@
+
+\noindent \textbf{\Sexpr{sub.id}\textunderscore Sternberg\textunderscore singleNEUROIMAGING.rnw} \par
+\noindent compiled \today\  \par
+\noindent This file summarizes \Sexpr{sub.id}'s behavioral performance on the DMCC Sternberg task, NEUROIMAGING version. \par
+\vspace{0.1 cm} 
+
+\subsection*{Quality Control: expected stimuli and responses?}
+\noindent The first block of code reads in the eprime output files (e-recovery or .csv), and then checks whether the expected number and types of trials was present in each run and block. Unless a run was known to end early, any error messages printed below should be investigated. NOTE: if you have more than two runs you will need to update this code. \par
+\vspace{0.2 cm} 
+\noindent This checks if for NN trials the probe word was not in the words of this trial or the previous; for NP trials the probe word was in the current trial but not the previous; for RN trials the probe word was in the previous trials but not the current. \par
+<<code1a, echo=FALSE>>=
+
+found.error <- FALSE;
+for (ssid in 1:length(session.ids)) { 
+  for (rid in 1:length(run.ids)) {     # rid <- 1; ssid <- 3;
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {   
+      in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # just to simplify the code
+
+      inds <- which(in.tbl$TrialType == "NN"); # probe word NOT in these.words or prev.words
+      for (i in inds) {    # i <- inds[1];
+        this.probe <- in.tbl$probe[i];
+        these.words <- in.tbl[i,paste0("w", 1:8)];
+        prev.words <- in.tbl[i-1,paste0("w", 1:8)];
+        if (length(which(these.words == this.probe)) > 0 | length(which(prev.words == this.probe)) > 0) { print("NN trial error"); found.error <- TRUE; }
+      }
+      
+      inds <- which(in.tbl$TrialType == "NP"); # probe word IN these.words but NOT in prev.words
+      for (i in inds) {    # i <- inds[1];
+        this.probe <- in.tbl$probe[i];
+        these.words <- in.tbl[i,paste0("w", 1:8)];
+        prev.words <- in.tbl[i-1,paste0("w", 1:8)];
+        if (length(which(these.words == this.probe)) != 1 | length(which(prev.words == this.probe)) > 0) { print("NP trial error"); found.error <- TRUE; }
+      }
+      
+      inds <- which(in.tbl$TrialType == "RN"); # probe word NOT in these.words but IS in prev.words
+      for (i in inds) {    # i <- inds[1];
+        this.probe <- in.tbl$probe[i];
+        these.words <- in.tbl[i,paste0("w", 1:8)];
+        prev.words <- in.tbl[i-1,paste0("w", 1:8)];
+        if (length(which(these.words == this.probe)) > 0 | length(which(prev.words == this.probe)) != 1) { print("RN trial error"); found.error <- TRUE; }
+      }   
+    }
+  }
+}
+print(paste("was there an error with the NN, NP, or RN trial words?", found.error));
+
+@
+
+\noindent This code checks if the number of trials in each run is correct (e.g., 9 NP list length 5 in baseline run 2).  \par
+<<code1b, echo=FALSE>>=
+
+if (length(run.ids) != 2) { 
+  print("can't do this test, since length(run.ids) != 2");
+} else {
+  tt.ids <- c("NN", "NP", "RN");    # trial types
+  
+  # number of trials needed in each run and session; taken from pilot800msec_checks.rnw.
+  tts <- c(rep("NN", 7), rep("NP",7), rep("RN", 7));
+  lls <- c(2:8, 2:8, 2:8);
+  # NN.2 NN.3 NN.4 NN.5 NN.6 NN.7 NN.8 NP.2 NP.3 NP.4 NP.5 NP.6 NP.7 NP.8 RN.2 RN.3 RN.4 RN.5 RN.6 RN.7 RN.8
+  base.cts <- cbind(c(0,0,0,6,2,4,6,0,0,0,9,2,5,7,0,0,0,3,0,0,1), c(0,0,0,6,3,4,5,0,0,0,9,2,4,7,0,0,0,3,0,1,1)); 
+  pro.cts <- cbind(c(6,4,2,6,0,0,0,7,5,2,9,0,0,0,1,0,0,3,0,0,0), c(5,4,3,6,0,0,0,7,4,2,9,0,0,0,1,1,0,3,0,0,0));
+  rea.cts <- cbind(c(0,0,0,3,0,0,1,0,0,0,9,2,5,7,0,0,0,6,2,4,6), c(0,0,0,3,0,1,1,0,0,0,9,2,4,7,0,0,0,6,3,4,5));
+  
+  found.error <- FALSE;
+  for (ssid in 1:length(session.ids)) {      # ssid <- 3;
+    if (session.ids[ssid] == "baseline") { ct.tbl <- data.frame(tts, lls, base.cts); }
+    if (session.ids[ssid] == "proactive") { ct.tbl <- data.frame(tts, lls, pro.cts); }
+    if (session.ids[ssid] == "reactive") { ct.tbl <- data.frame(tts, lls, rea.cts); }
+    colnames(ct.tbl) <- c("tts", "lls", "run1", "run2");
+    if (session.ids[ssid] == "proactive") { list.lengths <- 2:5; } else { list.lengths <- 5:8; }   # list lengths
+    for (rid in 1:length(run.ids)) {     # rid <- 1;
+      if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {   
+        in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # just to simplify the code
+        
+        for (ttid in 1:length(tt.ids)) {
+          for (lid in 1:length(list.lengths)) {   # lid <- 1; ttid <- 1; 
+            num.found <- length(which(in.tbl$TrialType == tt.ids[ttid] & in.tbl$ListLen == list.lengths[lid])); 
+            num.need <- ct.tbl[which(ct.tbl$tts == tt.ids[ttid] & ct.tbl$lls == list.lengths[lid]),paste0("run",rid)];
+            
+            if (num.found != num.need) { 
+              print(paste("expected", num.need, "found", num.found, tt.ids[ttid], list.lengths[lid], "trials.")); 
+              found.error <- TRUE; 
+            }
+          }
+        }
+      }
+    }
+  }
+  print(paste("was there an error with the number of trials?", found.error));
+}
+
+@
+
+\noindent This code checks if the expected words were presented.  \par
+<<code1c, echo=FALSE>>=
+
+# the expected words are in SternbergWordKey.txt, which should have been downloaded with this template
+fname <- paste0(key.path, "SternbergWordKey.txt");
+
+if (length(run.ids) != 2) { 
+  print("can't do this test, since length(run.ids) != 2");
+} else {
+  if (!file.exists(fname)) {
+    print("can't do this test, since did not find SternbergWordKey.txt");
+    print(paste("looked in", key.path));
+  } else {
+    found.error <- FALSE;
+    
+    word.tbl <- read.table(fname);
+    for (ssid in 1:length(session.ids)) { 
+      for (rid in 1:length(run.ids)) {     # rid <- 1; ssid <- 1;
+        if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {   
+          in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # just to simplify the code
+          in.tbl <- in.tbl[which(!is.na(in.tbl$w1)),]
+          if (nrow(in.tbl) != 45) { print("not 45 trials"); found.error <- TRUE }
+          
+          inds <- which(word.tbl$session.id == session.ids[ssid] & word.tbl$run.id == rid);
+          for (i in 1:length(inds)) {   # i <- 1;
+            if (word.tbl$w1[inds[i]] != in.tbl$w1[i]) { print("w1 mismatch"); found.error <- TRUE }
+            if (word.tbl$w2[inds[i]] != in.tbl$w2[i]) { print("w2 mismatch"); found.error <- TRUE }
+            if (is.na(word.tbl$w3[inds[i]]) & !is.na(in.tbl$w3[i])) { print("w3 NA mismatch"); found.error <- TRUE; }
+            if (!is.na(word.tbl$w3[inds[i]])) { if (word.tbl$w3[inds[i]] != in.tbl$w3[i]) { print("w3 mismatch"); found.error <- TRUE } }
+            
+            if (is.na(word.tbl$w4[inds[i]]) & !is.na(in.tbl$w4[i])) { print("w4 NA mismatch"); found.error <- TRUE; }
+            if (!is.na(word.tbl$w4[inds[i]])) { if (word.tbl$w4[inds[i]] != in.tbl$w4[i]) { print("w4 mismatch"); found.error <- TRUE } }
+            
+            if (is.na(word.tbl$w5[inds[i]]) & !is.na(in.tbl$w5[i])) { print("w5 NA mismatch"); found.error <- TRUE; }
+            if (!is.na(word.tbl$w5[inds[i]])) { if (word.tbl$w5[inds[i]] != in.tbl$w5[i]) { print("w5 mismatch"); found.error <- TRUE } }
+            
+            if (is.na(word.tbl$w6[inds[i]]) & !is.na(in.tbl$w6[i])) { print("w6 NA mismatch"); found.error <- TRUE; }
+            if (!is.na(word.tbl$w6[inds[i]])) { if (word.tbl$w6[inds[i]] != in.tbl$w6[i]) { print("w6 mismatch"); found.error <- TRUE } }
+            
+            if (is.na(word.tbl$w7[inds[i]]) & !is.na(in.tbl$w7[i])) { print("w7 NA mismatch"); found.error <- TRUE; }
+            if (!is.na(word.tbl$w7[inds[i]])) { if (word.tbl$w7[inds[i]] != in.tbl$w7[i]) { print("w7 mismatch"); found.error <- TRUE } }
+            
+            if (is.na(word.tbl$w8[inds[i]]) & !is.na(in.tbl$w8[i])) { print("w8 NA mismatch"); found.error <- TRUE; }
+            if (!is.na(word.tbl$w8[inds[i]])) { if (word.tbl$w8[inds[i]] != in.tbl$w8[i]) { print("w8 mismatch"); found.error <- TRUE } }
+            
+            if (word.tbl$probe[inds[i]] != in.tbl$probe[i]) { print("probe mismatch"); found.error <- TRUE }
+          }   
+        }
+      }
+    }
+    print(paste("was there an error with the presented words?", found.error));
+  } 
+}
+
+@
+
+
+\newpage
+\noindent These plots show the time and type of every trial (blues and greens) and response (red and pink); black tick marks indicate correct trials. The trial types and responses should be random, and errors should be approximately equal across the runs within each session (check if a participant appears to have stopped responding or suddenly increased in errors). Proactive should have list lengths of 2, 3, 4, and 5; Baseline and Reactive should have list lengths of 5, 6, 7, and 8. \par
+\vspace{0.1 cm} 
+<<code2, echo=FALSE, dev='pdf', fig.height=2.5, fig.width=7, fig.align='center'>>=
+par(mar=c(2, 1.5, 1.5, 0.75), mgp=c(1.1, 0.2, 0), tcl=-0.3); 
+# mar: c(bottom, left, top, right) gives the number of lines of margin. Default is c(5, 4, 4, 2) + 0.1.
+
+tt.ids <- c("NN", "NP", "RN");    # trial types
+tt.pchs <- c(20, 17, 18);    # plotting symbols for the trial types
+tt.cols <- c('darkgrey', 'darkolivegreen', 'black');   # colors for each trial type
+ll.cols <- c("black", "blue", "seagreen", "darkgoldenrod4");   # colors for each list length
+but.cols <- c("magenta", "red");   # colors for each button
+
+for (ssid in 1:length(session.ids)) {      # ssid <- 3;
+  if (session.ids[ssid] == "proactive") { llengths <- 2:5; } else { llengths <- 5:8; }   # list lengths vary with session
+  plot(x=0, y=0, xlim=c(0,750), ylim=c(0.2,(length(run.ids)+0.3)), col='white', xlab="time (seconds)", ylab="", main="", 
+       yaxt='n', xaxs='i', cex.lab=0.7, cex.axis=0.7);
+  mtext(paste0("Sternberg ", session.ids[ssid], ", ", sub.id), side=3, cex=0.7, line=0.1);
+  axis(side=2, at=1:length(run.ids), labels=paste0("run", 1:length(run.ids)), cex.axis=0.7, cex.lab=0.7);
+
+  for (rid in 1:length(run.ids)) {     # rid <- 1;
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {   
+      in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # to simplify the code
+
+      # set the start value and then subtract from all events onsets to obtain the true onsets. 
+      start.time <- in.tbl$scanstart.RTTime[1]; 
+      if (is.na(start.time) | start.time < 1000) { stop("invalid start.value"); }
+      
+      # trial types
+      for (i in 1:length(llengths)) {    # i <- 1;
+        inds <- which(in.tbl$ListLen == llengths[i]);
+        vals <- (in.tbl$Flicker.OnsetTime[inds] - start.time)/1000;  # YES, Nick says use OnsetTime, not StartTime
+        points(x=vals, y=rep(rid-0.1,length(vals)), pch='|', col=ll.cols[i]); 
+      }
+      
+      # show the button pushes
+      for (i in 1:2) {
+        inds <- which(in.tbl$ProbeSlide.RESP == i);   # this isn't looking for NAs, accuracy, etc: just the actual button pushes
+        vals <- (in.tbl$ProbeSlide.RTTime[inds] - start.time)/1000;      
+        points(x=vals, y=rep(rid,length(vals)), pch='|', col=but.cols[i]); 
+      }
+
+      # show the trial types
+      for (i in 1:length(tt.ids)) {    # i <- 1;
+        inds <- which(in.tbl$TrialType == tt.ids[i]);   
+        vals <- (in.tbl$Flicker.OnsetTime[inds] - start.time)/1000;      
+        points(x=vals, y=rep(rid-0.2,length(vals)), pch=tt.pchs[i], cex=0.7, col=tt.cols[i]); 
+      }
+
+      # mark accurate responses
+      inds <- which(in.tbl$ProbeSlide.ACC == 1);  
+      vals <- (in.tbl$ProbeSlide.RTTime[inds] - start.time)/1000;   
+      points(x=vals, y=rep(rid+0.11,length(vals)), pch="'");       
+    }
+  }
+  legend("bottomleft", legend=llengths, lwd=2, col=ll.cols, bty='n', cex=0.8, horiz=TRUE);
+  legend("bottomright", legend=tt.ids, pch=tt.pchs, pt.cex=1.5, col=tt.cols, bty='n', cex=0.8, horiz=TRUE);
+  box();
+}
+
+@
+
+
+\newpage
+\subsection*{Single-subject statistics for \Sexpr{sub.id}}
+\noindent We hope that the NN trials (blue) will have the lowest error rate, and that the RN (green) trials will be slower (bigger RT) than NN and NP trials. The error rate might be higher and RT slower with longer list lengths. \par
+\noindent \textbf{Robust statistics} for RT? \Sexpr{use.robust.stats} (Robust statistics never used for ERR, since typically very few errors.) \par
+\vspace{0.2 cm}
+<<code3, dev='pdf', echo=FALSE, fig.height=2.5, fig.width=7.5, fig.align='center', warning=FALSE>>= 
+# set warning=FALSE to avoid warnings for zero-length lines, which happens when SEM is above zero but too short to plot.
+layout(matrix(1:3, c(1,3)));
+par(mar=c(2.4, 2, 2, 0.75), mgp=c(1.1, 0.2, 0), tcl=-0.3);
+# mar: c(bottom, left, top, right) gives the number of lines of margin to be specified on the four sides of the plot. Default is c(5, 4, 4, 2) + 0.1.
+
+tt.ids <- c("NN", "NP", "RN");    # trial types
+stat.lbls <- c(".mean", ".sem");  # sum.tbl column labels   # SEM: standard deviation/sqrt(num observations)
+need.cols <- c("TrialType", "ListLen", "ProbeSlide.ACC", "ProbeSlide.RT", "ProbeSlide.RESP");
+list.lengths <- 2:8;
+
+sum.tbl <- data.frame(array(NA, c(length(session.ids)*length(list.lengths)*length(tt.ids), 9)));
+colnames(sum.tbl) <- c("session", "trial.type", "list.len", "num.trials", "ERR.mean", paste0("ACC", stat.lbls), paste0("RT", stat.lbls));
+ctr <- 1;  # row counter for sum.tbl
+for (ssid in 1:length(session.ids)) {    # ssid <- 2;
+  # want statistics calculated for all the runs in this session together (not each run separately)
+  # so this while loop appends the eprime tables for the runs together
+  if (exists('in.tbl')) { rm(in.tbl); }   # in.tbl for this session will be created in the loop
+  rid <- 1;   # initialize run counter
+  while (rid <= length(run.ids)) {  
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {    # have data for this run
+      tmp.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]][,need.cols];   # just the needed columns
+      if (exists('in.tbl')) { in.tbl <- rbind(in.tbl, tmp.tbl); } else { in.tbl <- tmp.tbl; }
+    }
+    rid <- rid + 1;   # increment run counter
+  }
+  
+  if (exists("in.tbl")) {
+    for (ttid in 1:length(tt.ids)) {    
+      for (lid in 1:length(list.lengths)) {    # ttid <- 3; lid <- 2;
+        inds <- which(in.tbl$TrialType == tt.ids[ttid] & in.tbl$ListLen == list.lengths[lid]);  
+        if (length(inds) > 0) { 
+          sum.tbl$session[ctr] <- session.ids[ssid];
+          sum.tbl$trial.type[ctr] <- tt.ids[ttid];
+          sum.tbl$list.len[ctr] <- list.lengths[lid];
+          sum.tbl$num.trials[ctr] <- length(inds);
+          
+          if (length(which(!is.na(in.tbl$ProbeSlide.RESP[inds]))) > 0) {   # they did respond, so check RT & ACC
+            vals <- in.tbl$ProbeSlide.ACC[inds];  
+            sum.tbl$ACC.mean[ctr] <- mean(vals);
+            sum.tbl$ERR.mean[ctr] <- 1 - sum.tbl$ACC.mean[ctr];
+            sum.tbl$ACC.sem[ctr] <- sd(vals)/sqrt(length(vals));
+            
+            # RT calculated from accurate trials only
+            inds <- which(in.tbl$TrialType == tt.ids[ttid] & in.tbl$ListLen == list.lengths[lid] & in.tbl$ProbeSlide.ACC == 1);
+            vals <- in.tbl$ProbeSlide.RT[inds];  
+            if (use.robust.stats == FALSE) {   # calculate regular mean and SEM
+              sum.tbl$RT.mean[ctr] <- mean(vals);
+              sum.tbl$RT.sem[ctr] <- sd(vals)/sqrt(length(vals));
+            } else {   # calculate robust (trimmed) mean and SEM
+              sum.tbl$RT.mean[ctr] <- mean(vals, trim=do.trim); 
+              sum.tbl$RT.sem[ctr] <- trimse(vals, tr=do.trim); 
+            }
+          }
+          ctr <- ctr + 1;
+        }
+      }
+    }
+  }
+}
+sum.tbl <- sum.tbl[1:(ctr-1),];  # take off empty rows, if any
+
+
+
+# plot the summary statistics (just calculated in sum.tbl)
+task.cols <- c("lightblue1", "lightpink1", "palegreen1");  # same order as trial.types
+off <- 0.2;
+lefts <- c(-0.3, -0.1, 0.1);  # always 3
+
+# plotting function to draw the bar and standard error markers
+do.bar <- function(trial.ind, l.len, at.top, at.sem) { 
+  # trial.ind <- ttid; l.len <- list.lengths[lid]; at.sem<-sum.tbl$RT.sem[ind]; at.top<-sum.tbl$RT.mean[ind];
+  rect(xleft=l.len+lefts[trial.ind], xright=l.len+lefts[trial.ind]+off, ybottom=y.lim[1], ytop=at.top, border=NA, col=task.cols[trial.ind]);
+  if (!is.na(at.sem) & at.sem > 0) {
+    mid <- ((l.len+lefts[trial.ind])+(l.len+lefts[trial.ind]+off))/2;
+    if ((at.top+at.sem) < y.lim[2]) { 
+      arrows(x0=mid, x1=mid, y0=at.top, y1=at.top+at.sem, angle=90, length=0.01); 
+    } else { lines(x=c(mid,mid), y=c(at.top,y.lim[2])); }
+    if ((at.top-at.sem) > y.lim[1]) { 
+      arrows(x0=mid, x1=mid, y0=at.top, y1=at.top-at.sem, angle=90, length=0.01); 
+    } else { lines(x=c(mid,mid), y=c(at.top,y.lim[1])); }
+  }
+}
+
+
+# make the barplots
+if (use.robust.stats == TRUE) { yttl <- "mean RT (robust; accurate trials only)"; } else { yttl <- "mean RT (accurate trials only)"; }
+
+y.lim <- c(0, 2000);  # set here, since used by the do.bar function
+for (ssid in 1:length(session.ids)) {   # ssid <- 3;
+  if (session.ids[ssid] == "proactive") { list.lengths <- 2:5; } else { list.lengths <- 5:8; }   # list lengths
+  x.lim <- c(min(list.lengths)-0.8,max(list.lengths)+0.8)
+  plot(x=0, y=0, xlim=x.lim, ylim=y.lim, col='white', ylab=yttl, xlab="list length", main="");
+  mtext(side=3, text=paste(session.ids[ssid], "Sternberg,", sub.id), line=0.1, cex=0.7); 
+  grid(col='darkgrey');
+  lines(x=c(-1,10), y=c(0,0), col='darkgrey');
+
+  for (ttid in 1:length(tt.ids)) {   
+    for (lid in 1:length(list.lengths)) {    # ttid <- 1; lid <- 4;
+      ind <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$trial.type == tt.ids[ttid] & sum.tbl$list.len == list.lengths[lid]);
+      if (length(ind) == 1) { do.bar(ttid, list.lengths[lid], at.top=sum.tbl$RT.mean[ind], at.sem=sum.tbl$RT.sem[ind]); }
+    }
+  }
+  legend(x="top", fill=task.cols, legend=tt.ids, bty='n', cex=0.9, horiz=TRUE); 
+  box();
+}
+
+
+yttl <- "mean error rate";
+y.lim <- c(0, 1); 
+for (ssid in 1:length(session.ids)) {   # ssid <- 2;  
+  if (session.ids[ssid] == "proactive") { list.lengths <- 2:5; } else { list.lengths <- 5:8; }   # list lengths
+  x.lim <- c(min(list.lengths)-0.8,max(list.lengths)+0.8);
+  plot(x=0, y=0, xlim=x.lim, ylim=c(y.lim[1]-0.14,y.lim[2]), yaxs='i', col='white', ylab=yttl, xlab="list length", main="");
+  mtext(side=3, text=paste(session.ids[ssid], "Sternberg,", sub.id), line=0.1, cex=0.7); 
+  grid(col='darkgrey');
+  lines(x=c(-1,10), y=c(0,0), col='darkgrey');
+  
+  for (ttid in 1:length(tt.ids)) {   
+    for (lid in 1:length(list.lengths)) {    #  ttid <- 3; lid <- 2;
+      ind <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$trial.type == tt.ids[ttid] & sum.tbl$list.len == list.lengths[lid])
+      if (length(ind) == 1) { 
+        if (!is.na(sum.tbl$ERR.mean[ind])) {   # don't plot anything if they didn't respond at all
+          if (sum.tbl$ERR.mean[ind] == 0 & (is.na(sum.tbl$ACC.sem[ind]) | sum.tbl$ACC.sem[ind] == 0)) { 
+            # did respond, and got all the trials correct, so plot a little line at zero for "no error".
+            lines(x=c(list.lengths[lid]+lefts[ttid], list.lengths[lid]+lefts[ttid]+off), y=c(0,0), col=task.cols[ttid]);   
+          } else { do.bar(ttid, list.lengths[lid], at.top=sum.tbl$ERR.mean[ind], at.sem=sum.tbl$ACC.sem[ind]); }
+        }
+      }
+    }
+  }
+  legend(x="bottom", fill=task.cols, legend=tt.ids, bty='n', cex=1, horiz=TRUE); 
+  box();
+}
+
+@
+
+
+\vspace{0.5 cm}
+\noindent The following figures have the same means and SEMs as in the above barplots, rearranged to facilitate across-session comparisons.  \par
+\vspace{0.1 cm}
+<<code4, dev='pdf', echo=FALSE, cache=TRUE, warning=FALSE, echo=FALSE, fig.height=2.25, fig.width=7.5, fig.align='center', size='small'>>= 
+# warning=FALSE to avoid printing warnings if SEM is 0 or missing for some list length/trial type combinations (there will be missings)
+layout(matrix(1:6, c(1,6)));
+par(mar=c(2.2, 2, 2, 0.5), mgp=c(1.1, 0.2, 0), tcl=-0.3);
+# mar: c(bottom, left, top, right) gives the number of lines of margin. Default is c(5, 4, 4, 2) + 0.1.
+
+tt.ids <- c("NN", "NP", "RN");    # trial types
+list.lengths <- 2:8;
+clrs.sess <- c("firebrick", "forestgreen", "cornflowerblue");  # session colors
+
+
+for (do.metric in c("RT", "ERR")) {     # do.metric <- "ERR";
+  if (do.metric == "ERR") { yttl <- "mean error rate";  y.lim <- c(0,1); sem.col <- "ACC.sem";
+  } else { yttl <- "mean RT (accurate trials only)";    y.lim <- c(600,1700); sem.col <- "RT.sem"; }
+  for (tid in 1:length(tt.ids)) {       # tid <- 1;
+    plot(x=0, y=0, xlim=c(1.5,8.5), ylim=y.lim, col='white', ylab=yttl, xlab="list length", main="", cex.axis=0.8, cex.lab=0.9);
+    grid(col='darkgrey');
+    mtext(paste(tt.ids[tid], "trials."), side=3, cex=0.7, line=0.1);
+    for (ssid in 1:length(sess.ids)) {   # ssid <- 1;
+      inds <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$trial.type == tt.ids[tid]);
+      if (length(inds) > 0) { 
+        lines(x=sum.tbl$list.len[inds], y=sum.tbl[inds,paste0(do.metric, ".mean")], col=clrs.sess[ssid]); 
+        points(x=sum.tbl$list.len[inds], y=sum.tbl[inds,paste0(do.metric, ".mean")], col=clrs.sess[ssid], pch=16); 
+        
+        arrows(x0=sum.tbl$list.len[inds], x1=sum.tbl$list.len[inds], y0=sum.tbl[inds,paste0(do.metric, ".mean")], 
+               y1=sum.tbl[inds,paste0(do.metric, ".mean")]+sum.tbl[inds,sem.col], angle=90, length=0.01, col=clrs.sess[ssid]); 
+        arrows(x0=sum.tbl$list.len[inds], x1=sum.tbl$list.len[inds], y0=sum.tbl[inds,paste0(do.metric, ".mean")], 
+               y1=sum.tbl[inds,paste0(do.metric, ".mean")]-sum.tbl[inds,sem.col], angle=90, length=0.01, col=clrs.sess[ssid]); 
+      }
+    }
+    legend(x="topleft", fill=clrs.sess, legend=sess.ids, bty='n', cex=0.7, horiz=FALSE); 
+    box();
+  }
+}
+
+
+@
+
+\newpage
+<<code5, echo=FALSE>>= 
+
+options(width=100);  # allow more columns to be printed
+print(sum.tbl[,1:8], scalebox=0.8);   # scalebox makes it print smaller
+
+@
+
+
+\vspace{0.4 cm}
+\subsection*{Sternberg derived measures for \Sexpr{sub.id}}
+\noindent Calculated from the mean RT and error rates in the above table. \par
+\vspace{0.1 cm}
+<<code6, echo=FALSE>>=
+
+# descriptions from http://pages.wustl.edu/dualmechanisms/sternberg-task#sbergcompute
+# critical trial performance
+# This computes behavioral performance specifically on the 5-item list-length trials that are matched across conditions. 
+# Performance is computed on each of the 3 probe types: NP, NN and RN. In addition to analyzing accuracy and RT data separately, these data 
+# are also combined to produce composite scores, both in terms of an inverse efficiency score (IES; computed as RT/accuracy), and also by summing
+# the two measures (RT/error rate) after they are z-score normalized (ZSUM). 
+
+# just LL5, NP, NN, and RN in each session
+# inverse efficiency score (IES; computed as RT/accuracy)
+for (ssid in 1:length(sess.ids)) {  
+  for (tid in 1:length(tt.ids)) {   # ssid <- 1; tid <- 1;
+    ind <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$trial.type == tt.ids[tid] & sum.tbl$list.len == 5);
+    if (length(ind) == 1) { 
+      print(paste0("Critical Trial, ", session.ids[ssid], " ", tt.ids[tid], " RT: ", round(sum.tbl$RT.mean[ind],3), 
+                   " ERR: ", round(sum.tbl$ERR.mean[ind],3), " IES: ", round((sum.tbl$RT.mean[ind]/sum.tbl$ACC.mean[ind]),3))); 
+    }
+  }
+}
+print("", quote=FALSE);
+
+ 
+# Recency effect
+# This computes the magnitude of behavioral interference measured as RN - NN performance. It can be computed on RT and accuracy, and also on
+# the composite RT/accuracy measures (IES; ZSUM). The DMC framework predicts a reduction in the recency effect magnitude in the reactive control 
+# condition relative to the baseline condition. 
+
+# just LL5, RN-NN in each session
+for (ssid in 1:length(sess.ids)) {  # ssid <- 1;
+  ind.RN <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$trial.type == "RN" & sum.tbl$list.len == 5);
+  ind.NN <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$trial.type == "NN" & sum.tbl$list.len == 5);
+  if (length(ind.RN) == 1 & length(ind.NN) == 1) { 
+    print(paste0("Recency Effect, ", session.ids[ssid], " RT: ", round(sum.tbl$RT.mean[ind.RN]-sum.tbl$RT.mean[ind.NN],3),
+                 " ERR: ", round(sum.tbl$ERR.mean[ind.RN]-sum.tbl$ERR.mean[ind.NN],3), 
+                 " IES: ", round((sum.tbl$RT.mean[ind.RN]/sum.tbl$ACC.mean[ind.RN])-(sum.tbl$RT.mean[ind.NN]/sum.tbl$ACC.mean[ind.NN]),3))); 
+  }
+}
+
+@
+
+
+\end{document}

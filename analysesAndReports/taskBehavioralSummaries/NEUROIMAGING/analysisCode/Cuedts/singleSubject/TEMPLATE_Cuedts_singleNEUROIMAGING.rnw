@@ -1,0 +1,609 @@
+\documentclass{article}
+  \addtolength{\oddsidemargin}{-1.25in}
+  \addtolength{\evensidemargin}{-1.25in}
+  \addtolength{\textwidth}{2.5in}
+  \addtolength{\topmargin}{-.875in}
+  \addtolength{\textheight}{1.75in}
+\begin{document}
+
+<<startup, echo=FALSE, message=FALSE, warning=FALSE>>=
+# code written by Joset A. Etzel (jetzel@wustl.edu) https://pages.wustl.edu/dualmechanisms   http://ccpweb.wustl.edu/
+# https://opensource.org/licenses/BSD-3-Clause 
+# Copyright 2018, Cognitive Control & Psychopathology Lab, Psychological & Brain Sciences, Washington University in St. Louis (USA)
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the 
+#    documentation and/or other materials provided with the distribution.
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this
+#    software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+# TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+rm(list=ls());    # clear R's workspace to start fresh; 
+
+# **** change these lines
+read.erecovery <- TRUE;  # if TRUE, read from e-recovery files; if FALSE, read from .csv files. The .csv files can be those
+# created by the code in this knitr file, or generated elsewhere, so long as the needed column names are unchanged.
+convert.txt.to.csv <- FALSE;   # if read.erecovery and convert.txt.to.csv TRUE, the eprime erecovery files are written as .csv format in in.path
+# if read.erecovery is FALSE, convert.txt.to.csv has no effect.
+
+in.path <- "d:/gitFiles_ccplabwustl/dualmechanisms/analysesAndReports/taskBehavioralSummaries/NEUROIMAGING/exampleDataset/input/";    
+# top-level path to the eprime e-recovery .txt (if read.erecovery) or .csv files (otherwise)
+# the input (e-recovery) files need to be in subdirectories of in.path, with files for each person in a separate subdirectory
+# named with the subject ID (matching the sub.id variable); see example dataset.
+
+sub.id <- "102008";     # the subject ID for this summary knitr, as named in the input files and subdirectory
+use.robust.stats <- TRUE;   # whether to use robust statistics or not for the RT mean and SEM 
+# robust statistics are not used for accuracy/error rate (even when use.robust.stats == TRUE) since most participants have very few errors.
+
+
+# **** should not need to change these lines
+task.id <- "Cuedts";   # as named in the input files
+session.ids <- c("baseline", "proactive", "reactive");    
+sess.ids <- c("Bas", "Pro", "Rea");      # shorter version of the session.ids; same order as session.ids
+run.ids <- c("run1", "run2");    # run IDs, as named in the input files. 
+
+
+# the edatparser library is needed for converting the eprime e-erecovery text files; not if only using .csv files 
+# download edatparser from https://github.com/ahebrank/edatparser; Copyright (c) 2015 Andy Hebrank
+if (read.erecovery == TRUE) { 
+  if (require(edatparser) == FALSE) { print("did not find the edatparser library; please install"); }  
+}
+
+# the trimse function from the WRS2 library is used for robust SEM
+if (use.robust.stats == TRUE) {
+  if (require(WRS2) == FALSE) { print("did not find the WRS2 library; please install"); } 
+  do.trim <- 0.1;  # how much trimming to do in the mean and SEM
+}
+
+
+# read the eprime files (e-recovery txt OR .csv) for this person, storing them in a list so they only have to be read once.
+all.ins <- vector("list", length(session.ids)*length(run.ids));   # make a blank list
+all.ins <- setNames(all.ins, c(paste0(sess.ids[1], 1:length(run.ids)), paste0(sess.ids[2], 1:length(run.ids)), 
+                               paste0(sess.ids[3], 1:length(run.ids))));    # assign the list slot names
+# if only two runs, this is equivalent: all.ins <- list(Bas1=NA, Bas2=NA, Pro1=NA, Pro2=NA, Rea1=NA, Rea2=NA);
+
+for (ssid in 1:length(session.ids)) {
+  for (rid in 1:length(run.ids)) {     # ssid <- 1; rid <- 1;
+    if (exists("in.tbl")) { rm(in.tbl); }   # clean up memory
+    fname <- paste0(in.path, sub.id, "/", sub.id, "_", session.ids[ssid], "_", task.id, sess.ids[ssid], "_", run.ids[rid]); 
+    if (read.erecovery == TRUE) {    # want to read a eprime text recovery file
+      if (file.exists(paste0(fname, ".txt"))) {     # and the eprime text recovery file exists, so process it
+        edat.tbl <- as.data.frame(edat(paste0(fname, ".txt")));    # read in the erecovery text file and convert to a data.frame.
+        
+        # the scanstart.RTTime: field is NOT included by edatparser in edat.tbl, so we need to read it directly.
+        tmp <- readLines(con <- file(paste0(fname, ".txt"), encoding="UCS-2LE"));  # specify windows encoding to avoid stray characters.
+        close(con);    # clean up the connection to the input file
+        
+        scanstart.RTTime <- tmp[grep(pattern='scanstart.RTTime:', x=tmp)];   # find the line with scanstart.RTTime
+        if (length(scanstart.RTTime) != 1) { stop("didn't find the scanstart.RTTime field!"); }
+        # extract the number part (scanner onset) from the string
+        scanstart.RTTime <- as.numeric(strsplit(scanstart.RTTime, ": ")[[1]][2]);  
+        if ((scanstart.RTTime > 100) != TRUE) { stop("very short scanstart.RTTime"); }
+        
+        in.tbl <- cbind(edat.tbl, scanstart.RTTime);    # add the scanstart.RTTime column to the table made by edat parser
+        
+        # convert columns read in as strings to numbers so can do later plotting and calculations
+        in.tbl$Flicker.OnsetTime <- as.numeric(in.tbl$Flicker.OnsetTime);
+        in.tbl$TargetSlide.RTTime <- as.numeric(in.tbl$TargetSlide.RTTime);
+        in.tbl$TargetSlide.RT <- as.numeric(in.tbl$TargetSlide.RT);
+        in.tbl$TargetSlide.ACC <- as.numeric(in.tbl$TargetSlide.ACC);
+        
+        if (convert.txt.to.csv == TRUE) {    # write out as a csv for future use. This will overwrite existing files with this name.
+          write.csv(in.tbl, paste0(fname, ".csv"), row.names=FALSE); 
+        }
+      } 
+    } else {   # read.erecovery == FALSE, so  want to read a .csv file
+      if (file.exists(paste0(fname, ".csv"))) { in.tbl <- read.csv(paste0(fname, ".csv")); } 
+    }
+    
+    # store the run's in.tbl (if it exists) into the list spot for this session & run
+    if (exists("in.tbl")) { all.ins[[paste0(sess.ids[ssid], rid)]] <- in.tbl; }
+  }
+}
+
+@
+
+\noindent \textbf{\Sexpr{sub.id}\textunderscore Cuedts\textunderscore singleNEUROIMAGING.rnw} \par
+\noindent compiled \today\  \par
+\noindent This file summarizes \Sexpr{sub.id}'s behavioral performance on the DMCC Cuedts task, NEUROIMAGING version. \par
+\vspace{0.1 cm} 
+
+\subsection*{Quality Control: expected stimuli and responses?}
+\noindent The first block of code reads in the eprime output files (e-recovery or .csv), and then checks whether the expected number and types of trials was present in each run and block. Unless a run was known to end early, any error messages printed below should be investigated. \par
+<<code1, echo=FALSE>>=
+
+t.ids.in <- c("Attend Letter", "Attend Number");
+t.ids <- c("let", "num");
+con.ids.in <- c("Congruent", "Incongruent");
+con.ids <- c("Con", "InCon");
+inc.ids.in <- c("NonIncentive", "Incentive");   # as coded in $TrialType
+inc.ids <- c("noInc", "Inc");  # shorter versions for the column labels
+
+
+# check if the number of trials of each type in each block is correct. 
+# $baseline and reactive BlockList: 2, 4, 6 for run 1 and 10, 12, 14 for run 2.
+
+# values copied from Erins_taskSwitchingScannerLists.xlsx
+# Stimuli column. first row block 1, second block 2, third block 3 
+run1.stimuli <- rbind(c("D4","E3","4D","D4","6I","I6","I6","H5","5H","1A","B2","2A","A2","A2","1B","B1","B1","1B"), 
+                      c("E3","3E","3E","E3","D4","5H","5H","6I","I6","A1","2B","2A","2A","A2","2A","B1","1B","1B"),
+                      c("4D","4D","E3","3E","3E","H5","6I","H5","6I","1A","2A","A2","2A","A2","B1","1B","B1","1B"));
+run2.stimuli <- rbind(c("D4","E3","3E","E3","4D","6I","5H","H5","6I","B2","A2","2A","A2","2A","B1","B1","1B","1B"), 
+                      c("D4","4D","D4","3E","5H","I6","I6","I6","H5","1A","2B","A2","A2","2A","2A","B1","B1","1B"), 
+                      c("4D","3E","D4","4D","E3","H5","5H","H5","6I","A1","2B","A2","2A","A2","B1","1B","B1","1B"));
+
+run1.taskcue <- rbind(c("Letter","Letter","Number","Number","Number","Letter","Number","Letter","Letter",
+                        "Letter","Number","Number","Letter","Number","Letter","Number","Letter","Number"),
+                      c("Number","Letter","Number","Number","Letter","Number","Letter","Number","Letter",
+                        "Number","Letter","Letter","Letter","Number","Number","Letter","Letter","Number"),
+                      c("Letter","Number","Letter","Number","Letter","Letter","Letter","Number","Number",
+                        "Number","Letter","Letter","Number","Number","Number","Letter","Letter","Number"));
+run2.taskcue <- rbind(c("Number","Number","Number","Letter","Letter","Letter","Number","Letter","Number",
+                        "Letter","Letter","Number","Number","Letter","Number","Letter","Number","Letter"), 
+                      c("Number","Number","Letter","Letter","Letter","Number","Letter","Number","Letter",
+                        "Number","Number","Letter","Number","Number","Letter","Letter","Number","Letter"), 
+                      c("Letter","Number","Letter","Number","Letter","Number","Number","Letter","Number",
+                        "Letter","Letter","Letter","Number","Number","Number","Number","Letter","Letter"));
+
+
+run1.cong <- rbind(c("Incongruent","Incongruent","Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent","Congruent",
+                     "Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent"),
+                   c("Incongruent","Incongruent","Incongruent","Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent",
+                     "Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent"),
+                   c("Incongruent","Incongruent","Incongruent","Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent",
+                     "Incongruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent"));
+run2.cong <- rbind(c("Incongruent","Incongruent","Incongruent","Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent",
+                     "Incongruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent"),
+                   c("Incongruent","Incongruent","Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent","Congruent",
+                     "Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent"),
+                   c("Incongruent","Incongruent","Incongruent","Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent",
+                     "Incongruent","Incongruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent","Congruent"));
+
+
+# ColorOrig column, same in all blocks in Erin's spreadsheet.
+all.colors <- c("Green","Green","Green","Green","Green","Green","Black","Black","Black","Black","Black","Black","Black","Black",
+                "Black","Black","Black","Black");
+
+found.error <- FALSE;
+for (rid in 1:2) {  # rid <- 1;
+  if (rid == 1) { cts <- rbind(c(9,9,9), c(9,9,9));  stims <- run1.stimuli; cues <- run1.taskcue; congs <- run1.cong; }  
+  if (rid == 2) { cts <- rbind(c(9,9,9), c(9,9,9)); stims <- run2.stimuli; cues <- run2.taskcue; congs <- run2.cong; }
+  for (ssid in 1:length(session.ids)) {    # ssid <- 1;
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {
+      in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # just to simplify the code
+
+      # first, check how many trials of each type are in each block. block list identification numbers not uniform, so need to find them.
+      tmp.all <- in.tbl[,paste0(session.ids[ssid], "BlockList")]
+      tmp <- unique(tmp.all);
+      tmp.keep <- rep(TRUE, length(tmp));
+      for (i in 1:length(tmp)) { if (length(which(tmp.all == tmp[i])) == 1) { tmp.keep[i] <- FALSE; }   }
+      block.ids <- tmp[which(tmp.keep == TRUE)];
+      if (length(block.ids) != 3) { print(paste("not three blocks?", fname)); found.error <- TRUE; }
+
+      for (bid in 1:length(block.ids)) { 
+        for (i in 1:length(t.ids.in)) {    # bid <- 1; i <- 1;
+          num <- length(which(in.tbl$TaskCue == t.ids.in[i] & in.tbl[,paste0(session.ids[ssid], "BlockList")] == block.ids[bid]));
+          if (num != cts[i,bid]) { 
+            txt <- paste0("... ", t.ids.in[i], ", block ", bid, " count mismatch: expected ", cts[i,bid], ", found ", num)
+            print(txt, quote=FALSE); 
+            found.error <- TRUE;
+          }
+        }
+      }
+      
+      # how many "NonIncentive", "Incentive" trials are needed in each block (same order as inc.ids.in)
+      if (session.ids[ssid] == "baseline") { need.Inc <- c(18, 0); } else { need.Inc <- c(12, 6); } 
+      for (bid in 1:length(block.ids)) { 
+        for (i in 1:length(inc.ids.in)) {    # bid <- 1; i <- 1;
+          num <- length(which(in.tbl$TrialType == inc.ids.in[i] & in.tbl[,paste0(session.ids[ssid], "BlockList")] == block.ids[bid]));
+          if (need.Inc[i] != num) { 
+            txt <- paste0("... ", inc.ids.in[i], ", block ", bid, " count mismatch: expected ", need.Inc[i], ", found ", num)
+            print(txt, quote=FALSE); 
+            found.error <- TRUE;
+          }
+        }
+      }
+      
+      # check if the expected colors are present
+      if (session.ids[ssid] == "baseline") {   # all CueColor Red, all Color Black
+        if (unique(in.tbl$CueColor)[2] != "Red") { print("... a CueColor other than Red?"); found.error <- TRUE; }
+        if (unique(in.tbl$Color)[2] != "Black") { print("... a Color other than Black?"); found.error <- TRUE; }
+      } 
+      if (session.ids[ssid] == "reactive") {   # all CueColor Red, Color Green and Black
+        if (unique(in.tbl$CueColor)[2] != "Red") { print("... a CueColor other than Red?"); found.error <- TRUE; }
+        if (sort(unique(in.tbl$Color))[2] != "Green") { print("... a Color other than Green?"); found.error <- TRUE; }
+        if (sort(unique(in.tbl$Color))[1] != "Black") { print("... a Color other than Black?"); found.error <- TRUE; }
+        
+        if (length(which(in.tbl$Color == "Green" & in.tbl$TrialType != "Incentive")) > 0) { print("... a non-incentive Green?"); found.error <- TRUE; }
+        if (length(which(in.tbl$Color == "Black" & in.tbl$TrialType != "NonIncentive")) > 0) { print("... an incentive Black?"); found.error <- TRUE; }
+      } 
+      if (session.ids[ssid] == "proactive") {   # CueColor Green and Red, all Color Black
+        if (sort(unique(in.tbl$CueColor))[2] != "Red") { print("... a CueColor other than Red?"); found.error <- TRUE; }
+        if (sort(unique(in.tbl$CueColor))[1] != "Green") { print("... a CueColor other than Green?"); found.error <- TRUE;}
+        if (unique(in.tbl$Color)[2] != "Black") { print("... a Color other than Black?"); found.error <- TRUE; }
+        
+        if (length(which(in.tbl$CueColor == "Green" & in.tbl$TrialType != "Incentive")) > 0) { print("... a non-incentive Green?"); found.error <- TRUE; }
+        if (length(which(in.tbl$CueColor == "Red" & in.tbl$TrialType != "NonIncentive")) > 0) { print("... an incentive Red?"); found.error <- TRUE; }
+      }
+      
+      # compare actually-shown stimuli with the ones from Erin's sheets
+      for (bid in 1:length(block.ids)) {    # bid <- 2;
+        inds <- which(in.tbl[,paste0(session.ids[ssid], "BlockList")] == block.ids[bid]);
+        if (length(inds) != 18) { stop("wrong number of trials"); }
+        for (i in 1:18) {   # i <- 1;  
+          # step through lists from Erin's sheet, checking that each combination was shown (in in.tbl). Some trial combinations occur multiple times
+          val <- which(in.tbl$Congruency[inds] == congs[bid,i] & in.tbl$TaskCue[inds] == paste("Attend", cues[bid,i]) & 
+                         in.tbl$Stimuli[inds] == stims[bid,i]  & in.tbl$ColorOrig[inds] == all.colors[i]);
+          if (length(val) == 0) { 
+            print(paste("... in block", bid, "didn't find", stims[bid,i], "Attend", cues[bid,i], congs[bid,i], all.colors[i])); 
+            found.error <- TRUE;
+          } 
+          if (length(val) == 1) { inds <- inds[-val]; }  # found one of these, so delete
+          if (length(val) > 1) { inds <- inds[-val[1]]; }  # found one of these, so delete
+        }
+        if (length(inds) > 0) { 
+          for (i in 1:length(inds)) {    # i <- 1;
+            print(paste("... in block", bid, "found", in.tbl$Stimuli[inds[i]], in.tbl$TaskCue[inds[i]], in.tbl$Congruency[inds[i]],
+                        in.tbl$ColorOrig[inds[i]])); 
+            found.error <- TRUE;
+          }
+        }
+      }
+    } 
+  }
+}
+print(paste("Found an error in the Cuedts trial counting or stimulus matching?", found.error));
+
+@
+
+\noindent These plots show the time and type of every trial (blue and green) and response (red and pink); black tick marks indicate correct trials. The trial types and responses should be random (e.g., not an entire block of letter), and errors should be approximately equal across the runs (check if a participant appears to have stopped responding or suddenly increased in errors).  \par
+\vspace{0.1 cm} 
+<<code2, echo=FALSE, dev='pdf', fig.height=2, fig.width=7, fig.align='center'>>=
+par(mar=c(2, 1.5, 1.5, 0.75), mgp=c(1.1, 0.2, 0), tcl=-0.3); 
+# mar: c(bottom, left, top, right) gives the number of lines of margin. Default is c(5, 4, 4, 2) + 0.1.
+
+but.cols <- c("magenta", "red");   # button colors
+stim.cols <- c("cadetblue", "blue");   # task type colors
+
+for (ssid in 1:length(session.ids)) {      # ssid <- 1;
+  plot(x=0, y=0, xlim=c(0,760), ylim=c(0.2,(length(run.ids)+0.3)), col='white', xlab="time (seconds)", ylab="", main="", yaxt='n', 
+       xaxs='i', cex.axis=0.7, cex.lab=0.7);
+  mtext(paste0("Cued task-switching ", session.ids[ssid], ", ", sub.id), side=3, cex=0.7, line=0.1);
+  axis(side=2, at=1:length(run.ids), labels=paste0("run", 1:length(run.ids)), cex.axis=0.7, cex.lab=0.7);
+  
+  for (rid in 1:length(run.ids)) {     # rid <- 1;
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {   
+      in.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]];   # just to simplify the code
+
+      # set the start value and then subtract from all events onsets to obtain the true onsets. 
+      start.time <- in.tbl$scanstart.RTTime[1]; 
+      if (is.na(start.time) | start.time < 1000) { stop("invalid start.value"); }
+      
+      # events are Attend Letter or Attend Number
+      inds <- which(in.tbl$TaskCue == "Attend Letter");
+      vals <- (in.tbl$Flicker.OnsetTime[inds] - start.time)/1000;  # YES, use OnsetTime, not StartTime
+      points(x=vals, y=rep(rid-0.13,length(vals)), pch='|', col=stim.cols[1]); 
+      inds <- which(in.tbl$TaskCue == "Attend Number");
+      vals <- (in.tbl$Flicker.OnsetTime[inds] - start.time)/1000;  # YES, use OnsetTime, not StartTime
+      points(x=vals, y=rep(rid-0.13,length(vals)), pch='|', col=stim.cols[2]); 
+      
+      # show the button pushes
+      for (i in 1:2) {
+        inds <- which(in.tbl$TargetSlide.RESP == i);   # this isn't looking for NAs, accuracy, etc: just the actual button pushes
+        vals <- (in.tbl$TargetSlide.RTTime[inds] - start.time)/1000;      
+        points(x=vals, y=rep(rid+0.1,length(vals)), pch='|', col=but.cols[i]); 
+      }
+      
+      # mark accurate responses
+      inds <- which(in.tbl$TargetSlide.ACC == 1);  
+      vals <- (in.tbl$TargetSlide.RTTime[inds] - start.time)/1000;      
+      points(x=vals, y=rep(rid+0.22,length(vals)), pch="'");       
+    }
+  }
+  legend("bottomleft", legend=c("letter", "number"), lwd=2, col=stim.cols, bty='n', cex=0.7, horiz=TRUE);
+  legend("bottomright", legend=c("button1", "button2"), lwd=2, col=but.cols, bty='n', cex=0.7, horiz=TRUE);     
+  box();
+}
+
+@
+
+\newpage
+\subsection*{Single-subject statistics for \Sexpr{sub.id}}
+\noindent \textbf{RT:} We hope that RT will be faster (shorter bars) on Inc than noInc in proactive, but faster on noInc in reactive. \par
+\noindent \textbf{Error Rate:} We hope that the error rate will be worse (higher bars) on InCongruent than Congruent trials, with this difference smaller in reactive than proactive. \par
+\noindent \textbf{Robust statistics} for RT? \Sexpr{use.robust.stats} (Robust statistics never used for ERR, since typically very few errors.) \par
+\vspace{0.2 cm}
+<<code3, dev='pdf', echo=FALSE, fig.height=2.5, fig.width=7.5, fig.align='center'>>= 
+layout(matrix(1:6, c(1,6)));
+par(mar=c(1.5, 2, 2, 0.75), mgp=c(1.1, 0.2, 0), tcl=-0.3);
+# mar: c(bottom, left, top, right) gives the number of lines of margin to be specified on the four sides of the plot. Default is c(5, 4, 4, 2) + 0.1.
+
+stat.lbls <- c(".mean", ".sem");  # sum.tbl column labels   # SEM: standard deviation/sqrt(num observations)
+tt.ids <- c("NonIncentive", "Incentive");    # coded in $TrialType
+tt.ids.color <- c("Black", "Green");    # as coded in $ColorOrig
+tt.ids.short <- c("noInc", "inc");   
+con.ids <- c("Congruent", "Incongruent");   # coded in $Congruency
+con.ids.short <- c("Con", "InCon");   
+
+need.cols <- c("TrialType", "Congruency", "ColorOrig", "TargetSlide.ACC", "TargetSlide.RT");   # columns needed from the eprime output
+sum.tbl <- data.frame(array(NA, c(length(session.ids)*length(con.ids)*length(tt.ids), 9)));
+colnames(sum.tbl) <- c("session", "inc.id", "con.id", "num.trials", "ERR.mean", paste0("ACC", stat.lbls), paste0("RT", stat.lbls));
+ctr <- 1;  # row counter for sum.tbl
+for (ssid in 1:length(session.ids)) {    # ssid <- 1;  
+  # want statistics calculated for all the runs in this session together (not each run separately)
+  # so this while loop appends the eprime tables for the runs together
+  if (exists('in.tbl')) { rm(in.tbl); }   # in.tbl for this session will be created in the loop
+  rid <- 1;   # initialize run counter
+  while (rid <= length(run.ids)) {  
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {    # have data for this run
+      tmp.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]][,need.cols];   # just the needed columns
+      if (exists('in.tbl')) { in.tbl <- rbind(in.tbl, tmp.tbl); } else { in.tbl <- tmp.tbl; }
+    }
+    rid <- rid + 1;   # increment run counter
+  }
+  
+  if (exists("in.tbl")) {
+    for (cid in 1:length(con.ids)) {  
+      for (ttid in 1:length(tt.ids)) {   # cid <- 1; ttid <- 1;
+        inds <- which(in.tbl$Congruency == con.ids[cid] & in.tbl$ColorOrig == tt.ids.color[ttid]);   # BAS has "Inc" and "NoInc"
+        if (length(inds) > 0) {   # no Incentive for baseline
+          sum.tbl$session[ctr] <- session.ids[ssid];
+          sum.tbl$inc.id[ctr] <- tt.ids.short[ttid];
+          sum.tbl$con.id[ctr] <- con.ids.short[cid];
+          sum.tbl$num.trials[ctr] <- length(inds);
+          
+          vals <- in.tbl$TargetSlide.ACC[inds];  
+          sum.tbl$ACC.mean[ctr] <- mean(vals);
+          sum.tbl$ERR.mean[ctr] <- 1 - sum.tbl$ACC.mean[ctr];
+          sum.tbl$ACC.sem[ctr] <- sd(vals)/sqrt(length(vals));
+          
+          # RT calculated from accurate trials only
+          inds <- which(in.tbl$Congruency == con.ids[cid] & in.tbl$ColorOrig == tt.ids.color[ttid] & in.tbl$TargetSlide.ACC == 1);
+          vals <- in.tbl$TargetSlide.RT[inds];  
+          if (use.robust.stats == FALSE) {   # calculate regular mean and SEM
+            sum.tbl$RT.mean[ctr] <- mean(vals);
+            sum.tbl$RT.sem[ctr] <- sd(vals)/sqrt(length(vals));
+          } else {   # calculate robust (trimmed) mean and SEM
+            sum.tbl$RT.mean[ctr] <- mean(vals, trim=do.trim); 
+            sum.tbl$RT.sem[ctr] <- trimse(vals, tr=do.trim); 
+          }
+          
+          ctr <- ctr + 1;   # increment row counter
+        }
+      }
+    }
+  }
+}
+sum.tbl <- sum.tbl[1:(ctr-1),];  # take off empty rows (if any)
+
+
+
+# plot the summary statistics (just calculated in sum.tbl)
+clrs <- c("palegreen1", "palegreen4");  # same order as tt.ids
+off <- 0.3;
+
+
+# plotting function to draw the bar and standard error markers
+do.bar <- function(inc.num, con.num, at.top, at.sem) {
+  if (inc.num == 1) { 
+    rect(xleft=con.num-off, xright=con.num, ybottom=y.lim[1], ytop=at.top, border=NA, col=clrs[inc.num]); 
+    mid <- (con.num-off + con.num)/2;
+  }
+  if (inc.num == 2) { 
+    rect(xleft=con.num, xright=con.num+off, ybottom=y.lim[1], ytop=at.top, border=NA, col=clrs[inc.num]); 
+    mid <- (con.num+off + con.num)/2;
+  }
+  
+  if (!is.na(at.sem) & at.sem > 0) {  # plot error bars, truncating if too long (to avoid warnings)
+    if ((at.top+at.sem) < y.lim[2]) { arrows(x0=mid, x1=mid, y0=at.top, y1=at.top+at.sem, angle=90, length=0.03)
+    } else { lines(x=c(mid,mid), y=c(at.top,y.lim[2])); }
+    if ((at.top-at.sem) > y.lim[1]) { arrows(x0=mid, x1=mid, y0=at.top, y1=at.top-at.sem, angle=90, length=0.03);
+    } else { lines(x=c(mid,mid), y=c(at.top,y.lim[1])); }
+  }
+}
+
+
+# make the barplots
+if (use.robust.stats == TRUE) { yttl <- "mean RT (robust; accurate trials only)"; } else { yttl <- "mean RT (accurate trials only)"; }
+
+for (ssid in 1:length(session.ids)) {   # ssid <- 3;
+  # first RT
+  y.lim <- c(500, 1800);   # set here, since used by the do.bar function
+  plot(x=0, y=0, xlim=c(0.3,2.5), ylim=y.lim, col='white', ylab=yttl, xlab="", xaxt='n', main="");
+  mtext(side=3, text=session.ids[ssid], line=0.1, cex=0.7); 
+  axis(side=1, at=1:2, labels=con.ids.short);
+  grid();
+  for (cid in 1:length(con.ids)) {  
+    for (ttid in 1:length(tt.ids)) {   # cid <- 1; ttid <- 1;
+      ind <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$inc.id == tt.ids.short[ttid] & sum.tbl$con.id == con.ids.short[cid]);
+      if (length(ind) == 1) {  do.bar(ttid, cid, at.top=sum.tbl$RT.mean[ind], at.sem=sum.tbl$RT.sem[ind]); }
+    }
+  }
+  legend(x="topleft", fill=clrs, legend=tt.ids, bty='n', cex=0.8); 
+  box();
+  
+  
+  # then accuracy
+  y.lim <- c(0, 1);   # set here, since used by the do.bar function
+  plot(x=0, y=0, xlim=c(0.5,2.5), ylim=y.lim, col='white', ylab="mean error rate", xlab="", xaxt='n', main="");
+  mtext(side=3, text=session.ids[ssid], line=0.1, cex=0.7); 
+  axis(side=1, at=1:2, labels=con.ids.short);
+  grid(col='darkgrey');
+  lines(x=c(-1,5), y=c(0,0), col='darkgrey');
+  for (cid in 1:length(con.ids)) {  
+    for (ttid in 1:length(tt.ids)) {   # cid <- 1; ttid <- 1;
+      ind <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$inc.id == tt.ids.short[ttid] & sum.tbl$con.id == con.ids.short[cid]);
+      if (length(ind) == 1) { 
+        if (sum.tbl$ERR.mean[ind] == 0 & sum.tbl$ACC.sem[ind] == 0) {    # so a little bit is plotted
+          if (ttid == 1) { lines(x=c(cid, cid-off), y=c(0,0), col=clrs[ttid]); } else { lines(x=c(cid, cid+off), y=c(0,0), col=clrs[ttid]); }
+        } else { do.bar(ttid, cid, at.top=sum.tbl$ERR.mean[ind], at.sem=sum.tbl$ACC.sem[ind]); }
+      }
+    }
+  }
+  box();
+}
+
+@
+
+\vspace{0.1 cm}
+<<code4a, echo=FALSE, size='small'>>= 
+
+options(width=100);  # allow more columns to be printed
+print("divided by Incentive/NoIncentive and Congruent/Incongruent:", quote=FALSE);
+sum.tblr <- cbind(sum.tbl[,1:4], round(sum.tbl[,5:9],3));   
+print(sum.tblr); 
+
+@
+
+\vspace{0.1 cm}
+<<code4b, echo=FALSE, size='small'>>= 
+
+options(width=100);  # allow more columns to be printed
+
+switch.ids <- c("switch", "repeat");
+switch.nums <- c(1,0);   # how coded in $n_Switch. $n_Switch == 2 trials start each block and are omitted here
+
+need.cols <- c("TrialType", "ColorOrig", "n_Switch", "TargetSlide.ACC", "TargetSlide.RT");   # columns needed from the eprime output
+sum.tbl2 <- data.frame(array(NA, c(length(session.ids)*length(switch.ids)*length(tt.ids), 9)));
+colnames(sum.tbl2) <- c("session", "inc.id", "switch.id", "num.trials", "ERR.mean", paste0("ACC", stat.lbls), paste0("RT", stat.lbls));
+ctr <- 1;  # row counter for sum.tbl2
+for (ssid in 1:length(session.ids)) {    # ssid <- 1;  
+  # want statistics calculated for all the runs in this session together (not each run separately)
+  # so this while loop appends the eprime tables for the runs together
+  if (exists('in.tbl')) { rm(in.tbl); }   # in.tbl for this session will be created in the loop
+  rid <- 1;   # initialize run counter
+  while (rid <= length(run.ids)) {  
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {    # have data for this run
+      tmp.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]][,need.cols];   # just the needed columns
+      if (exists('in.tbl')) { in.tbl <- rbind(in.tbl, tmp.tbl); } else { in.tbl <- tmp.tbl; }
+    }
+    rid <- rid + 1;   # increment run counter
+  }
+  
+  if (exists("in.tbl")) {
+    for (swid in 1:length(switch.ids)) {  
+      for (ttid in 1:length(tt.ids)) {   # swid <- 1; ttid <- 1;
+        inds <- which(in.tbl$n_Switch == switch.nums[swid] & in.tbl$ColorOrig == tt.ids.color[ttid]);   # BAS has "Inc" and "NoInc"
+        if (length(inds) > 0) {   # no Incentive for baseline
+          sum.tbl2$session[ctr] <- session.ids[ssid];
+          sum.tbl2$inc.id[ctr] <- tt.ids.short[ttid];
+          sum.tbl2$switch.id[ctr] <- switch.ids[swid];
+          sum.tbl2$num.trials[ctr] <- length(inds);
+          
+          vals <- in.tbl$TargetSlide.ACC[inds];  
+          sum.tbl2$ACC.mean[ctr] <- mean(vals);
+          sum.tbl2$ERR.mean[ctr] <- 1 - sum.tbl2$ACC.mean[ctr];
+          sum.tbl2$ACC.sem[ctr] <- sd(vals)/sqrt(length(vals));
+          
+          # RT calculated from accurate trials only
+          inds <- which(in.tbl$n_Switch == switch.nums[swid] & in.tbl$ColorOrig == tt.ids.color[ttid] & in.tbl$TargetSlide.ACC == 1);
+          vals <- in.tbl$TargetSlide.RT[inds];  
+          if (use.robust.stats == FALSE) {   # calculate regular mean and SEM
+            sum.tbl2$RT.mean[ctr] <- mean(vals);
+            sum.tbl2$RT.sem[ctr] <- sd(vals)/sqrt(length(vals));
+          } else {   # calculate robust (trimmed) mean and SEM
+            sum.tbl2$RT.mean[ctr] <- mean(vals, trim=do.trim); 
+            sum.tbl2$RT.sem[ctr] <- trimse(vals, tr=do.trim); 
+          }
+          
+          ctr <- ctr + 1;   # increment row counter
+        }
+      }
+    }
+  }
+}
+sum.tbl2 <- sum.tbl2[1:(ctr-1),];  # take off empty rows (if any)
+
+
+print("divided by Incentive/NoIncentive and Switch/Repeat:", quote=FALSE);
+sum.tbl2r <- cbind(sum.tbl2[,1:4], round(sum.tbl2[,5:9],3));   
+print(sum.tbl2r); 
+print("(note: fewer trials in each session since first trial of each block ommited)", quote=FALSE);
+
+
+@
+
+
+\newpage
+<<code5, echo=FALSE>>=
+
+# reward rate, collapsed across trial types (not applicable to baseline)
+for (ssid in 2:length(session.ids)) {    # ssid <- 2;  
+  # want statistics calculated for all the runs in this session together (not each run separately)
+  # so this while loop appends the eprime tables for the runs together
+  if (exists('in.tbl')) { rm(in.tbl); }   # in.tbl for this session will be created in the loop
+  rid <- 1;   # initialize run counter
+  while (rid <= length(run.ids)) {  
+    if (length(all.ins[[paste0(sess.ids[ssid], rid)]]) > 1) {    # have data for this run
+      tmp.tbl <- all.ins[[paste0(sess.ids[ssid], rid)]][,need.cols];   # just the needed columns
+      if (exists('in.tbl')) { in.tbl <- rbind(in.tbl, tmp.tbl); } else { in.tbl <- tmp.tbl; }
+    }
+    rid <- rid + 1;   # increment run counter
+  }
+  
+  if (exists("in.tbl")) {
+    for (ttid in 1:length(tt.ids)) {   # ttid <- 1;
+      inds <- which(in.tbl$ColorOrig == tt.ids.color[ttid]);  
+      num.acc <- length(which(in.tbl$TargetSlide.ACC[inds] == 1));  # number responded to correctly
+      print(paste0("Reward rate: ", session.ids[ssid], " ", tt.ids[ttid], " ", round(num.acc/length(inds),3), 
+                   " (", num.acc, " correct of ", length(inds), " trials)."));
+    }
+  }
+}
+
+# the two cuedts Tracking and Results files vary a bit at the end, because the one for the final session for the person includes the money earned 
+# at the end (the first few rows are the same).
+
+@
+
+\subsection*{Cuedts derived measures for \Sexpr{sub.id}}
+\noindent Calculated from the mean RT and error rates in the above table, InCongruent - Congruent, Incentive and noIncentive trials separately. \par
+<<code6, echo=FALSE>>=
+
+# descriptions from http://pages.wustl.edu/dualmechanisms/task-switching#tscompute
+# Incentive TRCE
+# This computes the magnitude of behavioral interference measured as incongruent - congruent performance on the subset of stimuli 
+# that are incentivized (in the proactive and reactive conditions; this stimulus subset is also used for computation in the baseline 
+# condition even though the trials are not incentivized). It can be computed on RT and accuracy. The DMC framework predicts a reduction in 
+# TRCE for both the proactive and reactive conditions, but in the proactive the reduction should be found in RT, whereas in reactive it should
+# be found in accuracy.
+
+# InCon - Con, Inc trials only
+for (ssid in 1:length(sess.ids)) {   # ssid <- 1;
+  ind.incon <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$inc.id == "inc" & sum.tbl$con.id == "InCon");
+  ind.con <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$inc.id == "inc" & sum.tbl$con.id == "Con");
+  if (length(ind.incon) == 1 & length(ind.con) == 1) { 
+    print(paste0("Incentive TRCE ", session.ids[ssid], " RT: ", round(sum.tbl$RT.mean[ind.incon] - sum.tbl$RT.mean[ind.con],3), 
+                 " ERR: ", round(sum.tbl$ERR.mean[ind.incon] - sum.tbl$ERR.mean[ind.con],3))); 
+  }
+}
+print("", quote=FALSE);
+
+ 
+# Nonincentive trials
+# This computes behavioral performance, both RT and accuracy, selectively on the 100% non-incentive trials, since these are identical 
+# across all three conditions. The DMC framework predicts a sustained reward motivational context in the proactive condition will produce 
+# faster RTs compared to both baseline and reactive conditions, along with increased error rates. However, the non-incentive TRCE is 
+# predicted to be unchanged from baseline, reflecting a more generalized effect.  
+
+# InCon - Con, noInc trials only
+for (ssid in 1:length(sess.ids)) {   # ssid <- 1;
+  ind.incon <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$inc.id == "noInc" & sum.tbl$con.id == "InCon");
+  ind.con <- which(sum.tbl$session == session.ids[ssid] & sum.tbl$inc.id == "noInc" & sum.tbl$con.id == "Con");
+  if (length(ind.incon) == 1 & length(ind.con) == 1) { 
+    print(paste0("Nonincentive TRCE ", session.ids[ssid], " RT: ", round(sum.tbl$RT.mean[ind.incon] - sum.tbl$RT.mean[ind.con],3), 
+                 " ERR: ", round(sum.tbl$ERR.mean[ind.incon] - sum.tbl$ERR.mean[ind.con],3))); 
+  }
+}
+
+
+@
+
+
+\end{document}
