@@ -605,5 +605,26 @@ for (ssid in 1:length(sess.ids)) {   # ssid <- 1;
 
 @
 
+\vspace{0.3 cm}
+\noindent The reward and critical RT (how fast the participant must respond to receive a reward in Proactive and Reactive) are in lines 8 and 3 (respectively) of the \texttt{CuedTS Tracking and Results.txt} files written by the eprime scripts during the final session. If this file is present, it is read and values printed below. \par
+<<code7, echo=FALSE>>=
+
+fname <- paste0(in.path, sub.id, "/", sub.id, " CuedTS Tracking and Results.txt");
+if (file.exists(fname)) {
+  fin <- file(fname, 'rt');   # " CuedTS Tracking and Results.txt" is text, but not a full table, so use readLines instead of read.table or similar function
+  tmp <- readLines(fin);
+  close(fin); unlink(fin);   # close the file-reading connection
+
+  if (length(tmp) != 8) { print(paste("not 8 lines in", fname)); }
+  crit.RT <- unlist(strsplit(tmp[3], '"'))[2];    # extract the string on the third line
+  reward <- unlist(strsplit(tmp[8], '"'))[2];    # and the 8th
+  print(paste("critical RT:", crit.RT), quote=FALSE);
+  print(paste0("reward: $", reward), quote=FALSE);
+} else {
+  print(paste("missing:", fname), quote=FALSE); 
+}
+
+@
+
 
 \end{document}
