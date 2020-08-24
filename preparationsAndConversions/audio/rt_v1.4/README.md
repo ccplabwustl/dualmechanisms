@@ -50,6 +50,5 @@ location: [Short Time Energy and Zero Crossing Rate](https://www.mathworks.com/m
 
 ### Citations  
 Esfandiar Zavarehei (2020). Boll Spectral Subtraction (https://www.mathworks.com/matlabcentral/fileexchange/7675-boll-spectral-subtraction), MATLAB Central File Exchange. Retrieved August 20, 2020.   
-
 Nabin S Sharma (2020). Short-time Energy and Zero Crossing Rate (https://www.mathworks.com/matlabcentral/fileexchange/23571-short-time-energy-and-zero-crossing-rate), MATLAB Central File Exchange. Retrieved August 20, 2020.  
 Carolina Ramirez. https://profiles.stanford.edu/ramirezc Retrieved August 24, 2020. 
