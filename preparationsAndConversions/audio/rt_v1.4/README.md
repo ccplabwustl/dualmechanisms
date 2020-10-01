@@ -42,7 +42,7 @@ Author: Nabin S Sharma
 origin: [Short Time Energy and Zero Crossing Rate](https://www.mathworks.com/matlabcentral/fileexchange/23571-short-time-energy-and-zero-crossing-rate)
 
 #### zeropad.m  
-Author: made by Carolina
+Author: made by Carolina Ramirez
 
 #### zerocross.m  
 Author: Nabin S Sharma  
