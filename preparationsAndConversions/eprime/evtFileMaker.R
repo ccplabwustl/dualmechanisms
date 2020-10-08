@@ -613,6 +613,7 @@ do.Stern <- function(sub.id, which.DMCC, use.runs) {
           if (is.na(start.value) | start.value < 1000) { stop("invalid start.value"); }
           inds <- which(in.tbl$ListLen != 5 & in.tbl$TrialType == tt.ids[ttid]);  # not list length 5, TrialType ttid
           onsets <- (in.tbl$List1Slide.OnsetTime[inds] - start.value)/1000;  # /1000 to convert to seconds
+          onsets <- onsets - (onsets %% 1.2);   # shift to closest previous TR.
           cat(paste0(paste(onsets, collapse=" "), " \n"), file=fout);     # add to the file with onsets for just this session
         } else {
           cat("*\n", file=fout);     # add to the file with onsets for just this session
