@@ -39,7 +39,7 @@ options(warnPartialMatchDollar=TRUE);   # safety option. boxr functions warn "pa
 wustl.box <- TRUE;   # if a DMCC team member is running this code (downloads the eprime csv input from box)
 
 sub.id <- "150423";  #  subject id. (in quotes, even if the subject id is all numbers.)
-which.DMCC <- 2;    # which.DMCC <- 3;  # whether this is for DMCC2 (wave 1) or DMCC3 (wave 2, test/retest)
+which.DMCC <- 2;    # which.DMCC <- 3;  # DMCC phase number (e.g. which.DMCC <- 3 for the second wave of scans, DMCC_Phase3)
 
 temp.path <-  "d:/temp/evts/";     # path to a local directory where the files will be written (in a sub.id subdirectory).
 
@@ -63,6 +63,7 @@ if (wustl.box == TRUE) {      # set variables needed to run this code at wustl a
   
   if (which.DMCC == 2) { folder.num <- '8763934801'; }  # box ID for DMCC_Phase2(HCP) / Preprocessed_Data 
   if (which.DMCC == 3) { folder.num <- '31453535133'; }  # box ID for DMCC_Phase3 / Preprocessed_Data
+  if (which.DMCC == 4) { folder.num <- '134612671901'; }  # box ID for DMCC_Phase4 / Preprocessed_Data 
   
   box_auth();   # initiate the link to box. 
 }

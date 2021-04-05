@@ -44,7 +44,7 @@ reupload <- FALSE;   # whether to attempt to reupload files to box, even if alre
                      # files not already on box will always be uploaded if wustl.box == TRUE; this is whether to replace ones already present.
 
 sub.id <- "102008";  #  subject id. (in quotes, even if the subject id is all numbers.)
-which.DMCC <- 2;    # which.DMCC <- 3;  # whether this is for DMCC2 (wave 1) or DMCC3 (wave 2, test/retest)
+which.DMCC <- 2;    # which.DMCC <- 3;  # DMCC phase number (e.g. which.DMCC <- 3 for the second wave of scans, DMCC_Phase3)
 temp.path <-  "d:/temp/";     # path to a local directory where files will be written as the code runs.
 
 
@@ -66,6 +66,10 @@ if (wustl.box == TRUE) {      # set variables needed to run this code at wustl a
   if (which.DMCC == 3) { 
     ancestor.raw <- '31298436958';   # box ID for DMCC_Phase3 / Raw_Data 
     ancestor.prep <- '31453535133';   # box ID for DMCC_Phase3 / Preprocessed_Data 
+  }
+  if (which.DMCC == 4) { 
+    ancestor.raw <- '134612426355';   # box ID for DMCC_Phase4 / Raw_Data 
+    ancestor.prep <- '134612671901';   # box ID for DMCC_Phase4 / Preprocessed_Data 
   }
   
   box_auth();   # initiate the link to box. 
@@ -238,7 +242,7 @@ reupload <- FALSE;   # whether to attempt to reupload files to box, even if alre
 # files not already on box will always be uploaded if wustl.box == TRUE; this is whether to replace ones already present.
 
 sub.id <- "DMCC5244053";   # subject id. (in quotes, even if the subject id is all numbers.)
-which.DMCC <- 2;    # which.DMCC <- 3;  # whether this is for DMCC2 (wave 1) or DMCC3 (wave 2, test/retest)
+which.DMCC <- 2;    # which.DMCC <- 3;  # DMCC phase number (e.g. which.DMCC <- 3 for the second wave of scans, DMCC_Phase3)
 temp.path <-  "d:/temp/";     # path to a local directory where files will be written out as the code runs.
 
 
@@ -258,6 +262,10 @@ if (wustl.box == TRUE) {      # set variables needed to run this code at wustl a
   if (which.DMCC == 3) { 
     ancestor.raw <- '31298436958';   # box ID for DMCC_Phase3 / Raw_Data 
     ancestor.prep <- '31453535133';   # box ID for DMCC_Phase3 / Preprocessed_Data 
+  }
+  if (which.DMCC == 4) { 
+    ancestor.raw <- '134612426355';   # box ID for DMCC_Phase4 / Raw_Data 
+    ancestor.prep <- '134612671901';   # box ID for DMCC_Phase4 / Preprocessed_Data 
   }
   
   box_auth();   # initiate the link to box. 
