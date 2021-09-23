@@ -16,5 +16,5 @@ done
 #read -p "ENTER SUBJECT: " SUBJ; echo $SUBJ
 #read -p "ENTER SESSION: " session; echo $session
 
-curl -s -k -n https://${HOST}/data/projects/${PROJ}/subjects/${SUBJ}/experiments/${SUBJ}_${session}/scans?format=csv | cut -d, -f2,7 | grep tfMRI | grep -v 'SBRef\|Physio' > ${SUBJ}_${session}_trial.csv
+curl -s -n https://${HOST}/data/projects/${PROJ}/subjects/${SUBJ}/experiments/${SUBJ}_${session}/scans?format=csv | sed 's/"[^"]*"//' | cut -d, -f2,7 | grep fMRI | grep -v 'SBRef\|Physio' > ${SUBJ}_${session}_trial.csv
 

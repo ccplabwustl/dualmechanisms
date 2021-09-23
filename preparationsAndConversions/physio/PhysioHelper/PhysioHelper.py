@@ -7,13 +7,15 @@ import PhysioFunctions as PhyFun
 
 
 #TestValues:
-# SUBJ = 'DMCC6671683'
-# SESS = 'baseline'
-# PROJ = 'DMCC_Phase2'
+#SUBJ = 'DMCC6671683'
+#SESS = 'baseline'
+#PROJ = 'DMCC_Phase2'
+#REST = True
+#COMP = 'No'
 
 
 #Get the User Input
-PROJ, SUBJ, SESS, COMP, DIR = PhyFun.getUserInput()
+PROJ, SUBJ, SESS, COMP, DIR, REST = PhyFun.getUserInput()
 
 ABV = SESS[:3].capitalize()
 PhyFun.ChangeWorkingDir()
@@ -33,8 +35,8 @@ if COMP == 'Yes':
 #build a String of the matrix for the matlab file
 uuids, runnames = PhyFun.BuildMatrix(trialFileDict)
 
-
 #Place it into the Matlab file
+
 if uuids != 'no value':
     print "Copy the following lines into the matlab template file:\n\n"
     print 'uuids = ' + (uuids)
@@ -44,3 +46,17 @@ if uuids != 'no value':
 else:
     print 'The generated arrays are empty '
     print 'please verify you\'ve entered all parameters correctly'
+
+if REST:
+
+    uuids_rest, runnames_rest = PhyFun.BuildMatrixRest(trialFileDict)
+
+    if uuids_rest != 'no value':
+        print "Copy the following lines into the matlab template file:\n\n"
+        print 'uuids = ' + (uuids_rest)
+        print '\n\n'
+        print 'runnames = ' + (runnames_rest)
+
+    else:
+        print 'The generated arrays are empty '
+        print 'please verify you\'ve entered all parameters correctly'
