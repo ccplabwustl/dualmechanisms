@@ -1,5 +1,5 @@
 This code is part of the audio Stroop RT extraction pipeline used in the DMCC project.
-For more information, contact Joset A. Etzel (jetzel@wustl.edu), https://pages.wustl.edu/dualmechanisms  https://sites.wustl.edu/ccplab/
+For more information, contact Joset A. Etzel (jetzel@wustl.edu), https://sites.wustl.edu/dualmechanisms  https://sites.wustl.edu/ccplab/
 
 This and accompanying files are from https://github.com/ccplabwustl/dualmechanisms. More information on how to use these files and how they fit into the DMCC project is available in the "Behavioral Pre-Processing" section of the SOPs, at https://osf.io/pycm7/ (direct link https://mfr.osf.io/render?url=https://osf.io/pycm7/?direct%26mode=render%26action=download%26mode=render). 
 

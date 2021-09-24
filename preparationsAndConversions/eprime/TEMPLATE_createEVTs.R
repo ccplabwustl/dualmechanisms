@@ -1,4 +1,4 @@
-# code written by Joset A. Etzel (jetzel@wustl.edu) https://pages.wustl.edu/dualmechanisms   https://sites.wustl.edu/ccplab/
+# code written by Joset A. Etzel (jetzel@wustl.edu) https://sites.wustl.edu/dualmechanisms   https://sites.wustl.edu/ccplab/
 
 # https://opensource.org/licenses/BSD-3-Clause 
 # Copyright 2018, Cognitive Control & Psychopathology Lab, Psychological & Brain Sciences, Washington University in St. Louis (USA)
